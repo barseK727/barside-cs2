@@ -70,7 +70,7 @@ app.get('/api/auth/steam', (req, res) => {
 app.get('/api/auth/steam/callback', async (req, res) => {
     const claimedId = req.query['openid.claimed_id'];
     if (!claimedId) {
-        return res.redirect('https://barside-web.onrender.com/?error=auth_failed');
+        return res.redirect('https://barside-api.onrender.com/?error=auth_failed');
     }
     
     const steamId = claimedId.split('/').pop();
@@ -134,16 +134,16 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         if (db.bannedUsers && db.bannedUsers.includes(user.id)) {
             const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, banned: true })).toString('base64');
             res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            return res.redirect('https://barside-web.onrender.com/?error=banned');
+            return res.redirect('https://barside-api.onrender.com/?error=banned');
         }
         
         const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-        res.redirect('https://barside-web.onrender.com/');
+        res.redirect('https://barside-api.onrender.com/');
         
     } catch (error) {
         console.error('❌ Steam auth error:', error.message);
-        res.redirect('https://barside-web.onrender.com/?error=auth_failed');
+        res.redirect('https://barside-api.onrender.com/?error=auth_failed');
     }
 });
 
