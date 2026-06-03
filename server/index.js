@@ -63,7 +63,7 @@ const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBD
 const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 app.get('/api/auth/steam', (req, res) => {
-    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-web.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
+    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
     res.redirect(openIdUrl);
 });
 
@@ -81,7 +81,7 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         const steamUser = steamResponse.data.response?.players?.[0];
         
         if (!steamUser) {
-            return res.redirect('https://barside-web.onrender.com/?error=steam_api_failed');
+            return res.redirect('https://barside-api.onrender.com/?error=steam_api_failed');
         }
         
         let db = loadDB();
