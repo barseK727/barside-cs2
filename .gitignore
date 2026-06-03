@@ -1,4 +1,11 @@
-node_modules/ 
-server/node_modules/ 
-.env 
-server/.env 
+# Зависимости
+node_modules/
+server/node_modules/
+
+# Локальные файлы окружения (НЕ КОММИТИМ!)
+.env
+server/.env
+
+# Системные файлы
+.DS_Store
+*.log
