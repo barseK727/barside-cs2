@@ -472,6 +472,8 @@ app.get('/api/admin/search', (req, res) => {
 });
 
 // ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
+
+// Отправить заявку в друзья
 app.post('/api/friends/request/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -490,6 +492,7 @@ app.post('/api/friends/request/:userId', (req, res) => {
     res.json({ success: true });
 });
 
+// Получить заявки в друзья
 app.get('/api/friends/requests', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -498,6 +501,7 @@ app.get('/api/friends/requests', (req, res) => {
     res.json({ data: db.friendRequests.filter(r => r.toId === payload.userId && r.status === 'pending') });
 });
 
+// Принять заявку
 app.post('/api/friends/request/:requestId/accept', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -515,6 +519,7 @@ app.post('/api/friends/request/:requestId/accept', (req, res) => {
     res.json({ success: true });
 });
 
+// Отклонить заявку
 app.post('/api/friends/request/:requestId/decline', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -530,6 +535,7 @@ app.post('/api/friends/request/:requestId/decline', (req, res) => {
     res.json({ success: true });
 });
 
+// Получить список друзей
 app.get('/api/friends', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -540,41 +546,80 @@ app.get('/api/friends', (req, res) => {
     res.json({ data: friends });
 });
 
+// ============= СООБЩЕНИЯ =============
+
+// Получить все сообщения с пользователем
 app.get('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const messages = db.messages.filter(m => 
-        (m.fromId === payload.userId && m.toId === req.params.userId) ||
-        (m.fromId === req.params.userId && m.toId === payload.userId)
-    ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     
-    messages.forEach(msg => { if (msg.toId === payload.userId && !msg.read) msg.read = true; });
-    saveDB(db);
-    res.json({ data: messages });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const db = loadDB();
+        const messages = db.messages.filter(m => 
+            (m.fromId === payload.userId && m.toId === req.params.userId) ||
+            (m.fromId === req.params.userId && m.toId === payload.userId)
+        ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        
+        // Отмечаем сообщения как прочитанные
+        db.messages.forEach(msg => {
+            if (msg.toId === payload.userId && !msg.read) {
+                msg.read = true;
+            }
+        });
+        saveDB(db);
+        
+        res.json({ data: messages });
+    } catch(e) {
+        console.error('Error getting messages:', e);
+        res.json({ data: [] });
+    }
 });
 
+// Отправить сообщение
 app.post('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const { text } = req.body;
-    if (!text || !text.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
     
-    const db = loadDB();
-    db.messages.push({ id: Date.now().toString(), fromId: payload.userId, toId: req.params.userId, text: text.trim(), createdAt: new Date().toISOString(), read: false });
-    saveDB(db);
-    res.json({ success: true });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const { text } = req.body;
+        if (!text || !text.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+        
+        const db = loadDB();
+        const newMessage = {
+            id: Date.now().toString(),
+            fromId: payload.userId,
+            toId: req.params.userId,
+            text: text.trim(),
+            createdAt: new Date().toISOString(),
+            read: false
+        };
+        
+        if (!db.messages) db.messages = [];
+        db.messages.push(newMessage);
+        saveDB(db);
+        
+        res.json({ success: true, message: newMessage });
+    } catch(e) {
+        console.error('Error sending message:', e);
+        res.status(500).json({ error: 'Failed to send message' });
+    }
 });
 
+// Получить количество непрочитанных сообщений
 app.get('/api/messages/unread/count', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const count = db.messages.filter(m => m.toId === payload.userId && !m.read).length;
-    res.json({ count });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const db = loadDB();
+        const count = db.messages.filter(m => m.toId === payload.userId && !m.read).length;
+        res.json({ count });
+    } catch(e) {
+        res.json({ count: 0 });
+    }
 });
 
 // Health check
