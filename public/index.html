@@ -239,7 +239,7 @@
                 api.get('/stats').then(res => setStats(res.data)).catch(console.error);
             }, []);
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { className: 'text-center', style: { padding: '60px 0' } },
                     React.createElement('h1', { style: { fontSize: '56px', marginBottom: '20px' } }, 'BARSIDE ', React.createElement('span', { className: 'text-green' }, 'CS2')),
                     React.createElement('p', { className: 'text-gray', style: { fontSize: '20px', marginBottom: '40px' } }, 'Лучшие турниры, серверы и сообщество для настоящих фанатов Counter-Strike 2'),
@@ -355,7 +355,7 @@
             
             const isOwnProfile = currentUser?.steamId === steamId;
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { className: 'card' },
                     React.createElement('div', { className: 'profile-header' },
                         React.createElement('img', { src: profile.steamAvatar, className: 'profile-avatar' }),
@@ -592,7 +592,7 @@
                 setFormData(prev => ({ ...prev, rolesNeeded: { ...prev.rolesNeeded, [roleKey]: !prev.rolesNeeded[roleKey] } }));
             };
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' } },
                     React.createElement('div', null,
                         React.createElement('h1', { style: { fontSize: '32px', display: 'flex', alignItems: 'center', gap: '10px' } }, React.createElement('i', { className: 'fas fa-users' }), ' Поиск тиммейтов'),
@@ -829,7 +829,7 @@
                 );
             }
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { marginBottom: '30px' } },
                     React.createElement('h1', { style: { fontSize: '32px', display: 'flex', alignItems: 'center', gap: '10px' } }, 
                         React.createElement('i', { className: 'fas fa-user-friends' }), ' Друзья'
@@ -1020,7 +1020,7 @@
                 return map[status] || 'Скоро';
             };
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { marginBottom: '30px' } },
                     React.createElement('h1', { style: { fontSize: '32px' } }, '🏆 Турниры CS2'),
                     React.createElement('p', { className: 'text-gray' }, 'Участвуй в турнирах и выигрывай призы!')
@@ -1121,7 +1121,7 @@
             
             if (!user?.isAdmin) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Доступ запрещён');
             
-            return React.createElement('div', { className: 'container', style: { paddingTop: '40px' } },
+            return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' } },
                     React.createElement('h1', { style: { fontSize: '32px' } }, '👑 Админ-панель'),
                     React.createElement('button', { onClick: () => setShowTournamentForm(true), className: 'btn btn-primary' }, '+ Создать турнир')
@@ -1205,7 +1205,7 @@
             
             return React.createElement('div', null,
                 React.createElement(Header, { currentPage: currentPath === '/' ? '/' : currentPath.startsWith('/profile') ? '/profile' : currentPath, navigate }),
-                React.createElement('div', { className: 'page-wrapper' },  // ← ОБЕРНИТЕ content
+                React.createElement('div', { style: { paddingTop: '40px' } },  // ← ВОТ ЗДЕСЬ ОДИН РАЗ ДЛЯ ВСЕХ СТРАНИЦ
                     content
                 )
             );
