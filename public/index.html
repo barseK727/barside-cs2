@@ -1183,181 +1183,140 @@
             );
         }
         
-        // ============= СТРАНИЦА ЧАТА =============
+        // ============= СТРАНИЦА ЧАТА (ТЕСТОВАЯ ВЕРСИЯ) =============
         function ChatPage({ userId, navigate }) {
             const { user } = useAuth();
             const [chatUser, setChatUser] = React.useState(null);
             const [messages, setMessages] = React.useState([]);
             const [newMessage, setNewMessage] = React.useState('');
             const [loading, setLoading] = React.useState(true);
-            const [sending, setSending] = React.useState(false);
+            const [error, setError] = React.useState(null);
             const messagesEndRef = React.useRef(null);
             
-            const loadChatData = async () => {
-                try {
-                    // Загружаем информацию о пользователе
-                    const userRes = await api.get(`/profile/${userId}`);
-                    setChatUser(userRes.data.user);
-                    
-                    // Загружаем сообщения
-                    const messagesRes = await api.get(`/messages/${userId}`);
-                    setMessages(messagesRes.data.data || []);
-                } catch (err) {
-                    console.error('Chat error:', err);
-                    showToast('Ошибка загрузки', 'error', 'Ошибка');
-                } finally {
-                    setLoading(false);
-                }
-            };
-            
+            // Загрузка данных
             React.useEffect(() => {
-                if (userId && user) {
-                    loadChatData();
-                }
-            }, [userId]);
+                if (!user) return;
+                
+                console.log('Loading chat for user:', userId);
+                
+                // Загружаем информацию о собеседнике
+                api.get(`/profile/${userId}`)
+                    .then(res => {
+                        console.log('Profile loaded:', res.data.user);
+                        setChatUser(res.data.user);
+                    })
+                    .catch(err => {
+                        console.error('Profile error:', err);
+                        setError('Не удалось загрузить профиль');
+                    });
+                
+                // Загружаем сообщения
+                api.get(`/messages/${userId}`)
+                    .then(res => {
+                        console.log('Messages loaded:', res.data.data);
+                        setMessages(res.data.data || []);
+                        setLoading(false);
+                    })
+                    .catch(err => {
+                        console.error('Messages error:', err);
+                        setError('Не удалось загрузить сообщения');
+                        setLoading(false);
+                    });
+            }, [userId, user]);
             
-            // Скролл к последнему сообщению
+            // Скролл
             React.useEffect(() => {
                 if (messagesEndRef.current) {
                     messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
                 }
             }, [messages]);
             
-            // Обновление сообщений (простое, без сравнения)
-            const refreshMessages = async () => {
-                try {
-                    const res = await api.get(`/messages/${userId}`);
-                    setMessages(res.data.data || []);
-                } catch (err) {
-                    console.error('Refresh error:', err);
-                }
-            };
-            
-            // Обновляем каждые 3 секунды
-            React.useEffect(() => {
-                const interval = setInterval(refreshMessages, 3000);
-                return () => clearInterval(interval);
-            }, [userId]);
-            
+            // Отправка сообщения
             const sendMessage = async (e) => {
                 e.preventDefault();
                 if (!newMessage.trim()) return;
-                if (sending) return;
                 
-                setSending(true);
+                console.log('Sending message:', newMessage);
+                
                 try {
                     await api.post(`/messages/${userId}`, { text: newMessage });
                     setNewMessage('');
-                    await refreshMessages();
+                    
+                    // Перезагружаем сообщения
+                    const res = await api.get(`/messages/${userId}`);
+                    setMessages(res.data.data || []);
+                    console.log('Messages after send:', res.data.data);
                 } catch (err) {
-                    showToast('Ошибка отправки', 'error', 'Ошибка');
+                    console.error('Send error:', err);
+                    alert('Ошибка отправки: ' + (err.response?.data?.error || err.message));
                 }
-                setSending(false);
             };
             
             if (loading) {
-                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 
+                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } },
                     React.createElement('i', { className: 'fas fa-spinner fa-spin', style: { fontSize: '32px', color: 'var(--primary)' } }),
                     React.createElement('p', { className: 'text-gray', style: { marginTop: '12px' } }, 'Загрузка чата...')
                 );
             }
             
-            if (!chatUser) {
-                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 
-                    React.createElement('i', { className: 'fas fa-user-slash', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px' } }),
-                    React.createElement('p', { className: 'text-gray' }, 'Пользователь не найден'),
-                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn btn-primary', style: { marginTop: '15px' } }, '← Назад к друзьям')
+            if (error) {
+                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } },
+                    React.createElement('i', { className: 'fas fa-exclamation-triangle', style: { fontSize: '48px', color: '#f44336', marginBottom: '16px' } }),
+                    React.createElement('p', { className: 'text-gray' }, error),
+                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn btn-primary', style: { marginTop: '15px' } }, '← Назад')
                 );
             }
             
-            const formatTime = (dateStr) => {
-                try {
-                    const date = new Date(dateStr);
-                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                } catch(e) {
-                    return '';
-                }
-            };
+            if (!chatUser) {
+                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } },
+                    React.createElement('i', { className: 'fas fa-user-slash', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px' } }),
+                    React.createElement('p', { className: 'text-gray' }, 'Пользователь не найден'),
+                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn btn-primary', style: { marginTop: '15px' } }, '← Назад')
+                );
+            }
             
             return React.createElement('div', { className: 'container', style: { maxWidth: '800px', margin: '0 auto' } },
-                // Шапка
                 React.createElement('div', { className: 'card', style: { marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' } },
-                    React.createElement('button', { 
-                        onClick: () => navigate('/friends'), 
-                        className: 'btn', 
-                        style: { background: '#555', padding: '8px 12px' } 
-                    }, React.createElement('i', { className: 'fas fa-arrow-left' })),
-                    React.createElement('img', { 
-                        src: chatUser.steamAvatar, 
-                        style: { width: '48px', height: '48px', borderRadius: '50%', border: '2px solid var(--primary)' } 
-                    }),
+                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn', style: { background: '#555', padding: '8px 12px' } }, '←'),
+                    React.createElement('img', { src: chatUser.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%', border: '2px solid var(--primary)' } }),
                     React.createElement('div', { style: { flex: 1 } },
-                        React.createElement('h3', { style: { fontSize: '18px' } }, chatUser.displayName || chatUser.steamNickname)
-                    ),
-                    React.createElement('a', { 
-                        href: `https://steamcommunity.com/profiles/${chatUser.steamId}`, 
-                        target: '_blank', 
-                        className: 'btn btn-outline', 
-                        style: { padding: '6px 12px', fontSize: '12px' } 
-                    }, React.createElement('i', { className: 'fab fa-steam' }), ' Профиль')
+                        React.createElement('h3', null, chatUser.displayName || chatUser.steamNickname)
+                    )
                 ),
                 
-                // Сообщения
-                React.createElement('div', { className: 'card', style: { height: '450px', display: 'flex', flexDirection: 'column', overflow: 'hidden' } },
-                    React.createElement('div', { style: { flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' } },
+                React.createElement('div', { className: 'card', style: { height: '450px', display: 'flex', flexDirection: 'column' } },
+                    React.createElement('div', { style: { flex: 1, overflowY: 'auto', padding: '16px' } },
                         messages.length === 0 ? 
                             React.createElement('div', { className: 'text-center', style: { padding: '40px' } },
-                                React.createElement('i', { className: 'fas fa-comments', style: { fontSize: '40px', color: 'var(--text-muted)' } }),
-                                React.createElement('p', { className: 'text-gray', style: { marginTop: '12px' } }, 'Нет сообщений'),
-                                React.createElement('p', { className: 'text-muted', style: { fontSize: '12px' } }, 'Напишите первое сообщение')
+                                React.createElement('p', { className: 'text-gray' }, 'Нет сообщений')
                             ) : 
                             messages.map(function(msg) {
                                 const isOwn = msg.fromId === user?.id;
-                                const isSystem = msg.fromId === 'system';
-                                
-                                if (isSystem) {
-                                    return React.createElement('div', { key: msg.id, className: 'text-center', style: { margin: '8px 0' } },
-                                        React.createElement('span', { style: { background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', color: 'var(--text-muted)' } }, msg.text)
-                                    );
-                                }
-                                
-                                return React.createElement('div', { key: msg.id, style: { display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' } },
+                                return React.createElement('div', { key: msg.id, style: { textAlign: isOwn ? 'right' : 'left', marginBottom: '10px' } },
                                     React.createElement('div', { style: { 
-                                        maxWidth: '70%', 
-                                        background: isOwn ? 'linear-gradient(135deg, var(--primary), var(--primary-dark))' : 'rgba(255,255,255,0.08)',
-                                        borderRadius: '18px',
-                                        padding: '10px 14px',
-                                        borderBottomRightRadius: isOwn ? '4px' : '18px',
-                                        borderBottomLeftRadius: isOwn ? '18px' : '4px'
+                                        display: 'inline-block',
+                                        background: isOwn ? '#4c00ff' : '#333',
+                                        padding: '8px 12px',
+                                        borderRadius: '12px',
+                                        maxWidth: '70%'
                                     } },
-                                        React.createElement('p', { style: { fontSize: '13px', marginBottom: '4px', wordWrap: 'break-word' } }, msg.text),
-                                        React.createElement('p', { style: { fontSize: '9px', color: 'rgba(255,255,255,0.4)', textAlign: isOwn ? 'right' : 'left' } }, 
-                                            formatTime(msg.createdAt)
-                                        )
+                                        React.createElement('p', { style: { margin: 0, fontSize: '14px' } }, msg.text),
+                                        React.createElement('p', { style: { margin: '4px 0 0', fontSize: '10px', opacity: 0.6 } }, new Date(msg.createdAt).toLocaleTimeString())
                                     )
                                 );
                             }),
                         React.createElement('div', { ref: messagesEndRef })
                     ),
                     
-                    // Форма отправки
-                    React.createElement('form', { onSubmit: sendMessage, style: { display: 'flex', gap: '10px', padding: '12px', borderTop: '1px solid rgba(76,0,255,0.2)' } },
+                    React.createElement('form', { onSubmit: sendMessage, style: { display: 'flex', gap: '10px', padding: '12px', borderTop: '1px solid #333' } },
                         React.createElement('input', {
                             type: 'text',
                             value: newMessage,
                             onChange: function(e) { setNewMessage(e.target.value); },
                             placeholder: 'Напишите сообщение...',
-                            className: 'form-input',
-                            style: { flex: 1, background: 'rgba(255,255,255,0.05)' }
+                            style: { flex: 1, padding: '10px', background: '#222', border: '1px solid #444', borderRadius: '8px', color: 'white' }
                         }),
-                        React.createElement('button', { 
-                            type: 'submit', 
-                            className: 'btn btn-primary', 
-                            disabled: sending || !newMessage.trim(),
-                            style: { padding: '10px 18px' }
-                        }, 
-                            sending ? React.createElement('i', { className: 'fas fa-spinner fa-spin' }) : React.createElement('i', { className: 'fas fa-paper-plane' })
-                        )
+                        React.createElement('button', { type: 'submit', style: { padding: '10px 20px', background: '#4c00ff', border: 'none', borderRadius: '8px', color: 'white', cursor: 'pointer' } }, 'Отправить')
                     )
                 )
             );
