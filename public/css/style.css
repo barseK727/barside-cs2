@@ -41,6 +41,7 @@ body {
 }
 
 /* ===== ШАПКА ===== */
+/* ===== ШАПКА ===== */
 .header {
     background: rgba(10, 10, 15, 0.95);
     backdrop-filter: var(--blur-bg);
@@ -48,11 +49,12 @@ body {
     position: sticky;
     top: 0;
     z-index: 1000;
+    width: 100%;  /* ← ДОБАВИТЬ - на всю ширину */
 }
 
 .header-content {
-    max-width: 1600px;
-    margin: 0 auto;
+    max-width: 1600px;  /* ← ОСТАВИТЬ - это ограничение внутри шапки */
+    margin: 0 auto;     /* ← ОСТАВИТЬ - центрирование контента */
     padding: 16px 32px;
     display: flex;
     justify-content: space-between;
@@ -837,5 +839,73 @@ textarea.form-input {
     .role-badge {
         font-size: 10px;
         padding: 4px 8px;
+    }
+}
+
+/* ===== ОТСТУП ПОД ХЕДЕРОМ ===== */
+.main-content {
+    padding-top: 40px;
+    min-height: calc(100vh - 80px);
+}
+
+/* Адаптив для мобильных */
+@media (max-width: 768px) {
+    .main-content {
+        padding-top: 24px;
+    }
+}
+
+/* ===== АДАПТИВ ===== */
+@media (max-width: 768px) {
+    .header-content {
+        padding: 16px 20px;
+    }
+    
+    /* Отступ для контента под шапкой */
+    .container {
+        padding-top: 20px;
+    }
+}
+
+/* Добавьте в начало файла, после переменных */
+
+/* ===== ОБЩИЕ СТИЛИ ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* ===== ШАПКА НА ВСЮ ШИРИНУ ===== */
+.header {
+    background: rgba(10, 10, 15, 0.95);
+    backdrop-filter: var(--blur-bg);
+    border-bottom: 1px solid rgba(76, 0, 255, 0.3);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    width: 100%;  /* ← НА ВСЮ ШИРИНУ */
+}
+
+/* ===== ОТСТУП ПОД ШАПКОЙ ===== */
+.main-wrapper {
+    padding-top: 40px;
+    min-height: calc(100vh - 80px);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+/* Адаптив */
+@media (max-width: 768px) {
+    .main-wrapper {
+        padding-top: 24px;
+    }
+    
+    .container {
+        padding: 0 16px;
     }
 }
