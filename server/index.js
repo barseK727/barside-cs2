@@ -59,7 +59,7 @@ function saveDB(db) {
 
 // ============= STEAM AUTH =============
 const STEAM_API_KEY = 'B71E8712CD37B69EFF9DAE898EBDB2A3';
-const STEAM_RETURN_URL = `http://localhost:${PORT}/api/auth/steam/callback`;
+const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 console.log('🔧 Steam Auth URL:', STEAM_RETURN_URL);
 console.log('🔑 Steam API Key:', STEAM_API_KEY ? 'Установлен' : 'НЕ УСТАНОВЛЕН!');
