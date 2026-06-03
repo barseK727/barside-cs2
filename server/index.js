@@ -57,7 +57,7 @@ function saveDB(db) {
 }
 
 // ============= STEAM AUTH =============
-const STEAM_API_KEY = process.env.STEAM_API_KEY || '73B0E2A44B4F9B28DD3C5C760D5249DD';
+const STEAM_API_KEY = process.env.STEAM_API_KEY || '82A55315B4DE6D00DAA2694D3CDF9F61';
 const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 console.log('🔧 Steam Auth URL:', STEAM_RETURN_URL);
