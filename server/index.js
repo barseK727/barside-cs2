@@ -3,7 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const app = express();
-const path = require('path');
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -58,21 +57,21 @@ function saveDB(db) {
 }
 
 // ============= STEAM AUTH =============
-const STEAM_API_KEY = 'B71E8712CD37B69EFF9DAE898EBDB2A3';
+const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBDB2A3';
 const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 console.log('🔧 Steam Auth URL:', STEAM_RETURN_URL);
 console.log('🔑 Steam API Key:', STEAM_API_KEY ? 'Установлен' : 'НЕ УСТАНОВЛЕН!');
 
 app.get('/api/auth/steam', (req, res) => {
-    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=http://localhost:${PORT}&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
+    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-web.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
     res.redirect(openIdUrl);
 });
 
 app.get('/api/auth/steam/callback', async (req, res) => {
     const claimedId = req.query['openid.claimed_id'];
     if (!claimedId) {
-        return res.redirect('http://localhost:5000/?error=auth_failed');
+        return res.redirect('https://barside-web.onrender.com/?error=auth_failed');
     }
     
     const steamId = claimedId.split('/').pop();
@@ -83,7 +82,7 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         const steamUser = steamResponse.data.response?.players?.[0];
         
         if (!steamUser) {
-            return res.redirect('http://localhost:5000/?error=steam_api_failed');
+            return res.redirect('https://barside-web.onrender.com/?error=steam_api_failed');
         }
         
         let db = loadDB();
@@ -134,14 +133,15 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         
         const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-        res.redirect('http://localhost:5000/');
+        res.redirect('https://barside-web.onrender.com/');
         
     } catch (error) {
         console.error('❌ Steam auth error:', error.message);
-        res.redirect('http://localhost:5000/?error=auth_failed');
+        res.redirect('https://barside-web.onrender.com/?error=auth_failed');
     }
 });
 
+// Выход
 app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('auth_token');
     res.json({ success: true });
@@ -380,7 +380,6 @@ app.post('/api/admin/users/:userId/ban', (req, res) => {
 
 // ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
 
-// Отправить заявку
 app.post('/api/friends/request/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -399,7 +398,6 @@ app.post('/api/friends/request/:userId', (req, res) => {
     res.json({ success: true });
 });
 
-// Получить заявки
 app.get('/api/friends/requests', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -408,7 +406,6 @@ app.get('/api/friends/requests', (req, res) => {
     res.json({ data: db.friendRequests.filter(r => r.toId === payload.userId && r.status === 'pending') });
 });
 
-// Принять заявку
 app.post('/api/friends/request/:requestId/accept', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -426,7 +423,6 @@ app.post('/api/friends/request/:requestId/accept', (req, res) => {
     res.json({ success: true });
 });
 
-// Отклонить заявку
 app.post('/api/friends/request/:requestId/decline', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -442,7 +438,6 @@ app.post('/api/friends/request/:requestId/decline', (req, res) => {
     res.json({ success: true });
 });
 
-// Получить друзей
 app.get('/api/friends', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -453,7 +448,6 @@ app.get('/api/friends', (req, res) => {
     res.json({ data: friends });
 });
 
-// Получить сообщения
 app.get('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -469,7 +463,6 @@ app.get('/api/messages/:userId', (req, res) => {
     res.json({ data: messages });
 });
 
-// Отправить сообщение
 app.post('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -483,7 +476,6 @@ app.post('/api/messages/:userId', (req, res) => {
     res.json({ success: true });
 });
 
-// Непрочитанные сообщения
 app.get('/api/messages/unread/count', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -491,6 +483,11 @@ app.get('/api/messages/unread/count', (req, res) => {
     const db = loadDB();
     const count = db.messages.filter(m => m.toId === payload.userId && !m.read).length;
     res.json({ count });
+});
+
+// Health check для Render
+app.get('/healthz', (req, res) => {
+    res.status(200).json({ status: 'ok' });
 });
 
 // Статика
