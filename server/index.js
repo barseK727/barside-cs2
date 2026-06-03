@@ -63,14 +63,14 @@ const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBD
 const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 app.get('/api/auth/steam', (req, res) => {
-    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-web.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
+    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
     res.redirect(openIdUrl);
 });
 
 app.get('/api/auth/steam/callback', async (req, res) => {
     const claimedId = req.query['openid.claimed_id'];
     if (!claimedId) {
-        return res.redirect('https://barside-web.onrender.com/?error=auth_failed');
+        return res.redirect('https://barside-api.onrender.com/?error=auth_failed');
     }
     
     const steamId = claimedId.split('/').pop();
@@ -81,7 +81,7 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         const steamUser = steamResponse.data.response?.players?.[0];
         
         if (!steamUser) {
-            return res.redirect('https://barside-web.onrender.com/?error=steam_api_failed');
+            return res.redirect('https://barside-api.onrender.com/?error=steam_api_failed');
         }
         
         let db = loadDB();
@@ -133,16 +133,16 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         if (db.bannedUsers && db.bannedUsers.includes(user.id)) {
             const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, banned: true })).toString('base64');
             res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            return res.redirect('https://barside-web.onrender.com/?error=banned');
+            return res.redirect('https://barside-api.onrender.com/?error=banned');
         }
         
         const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-        res.redirect('https://barside-web.onrender.com/');
+        res.redirect('https://barside-api.onrender.com/');
         
     } catch (error) {
         console.error('❌ Steam auth error:', error.message);
-        res.redirect('https://barside-web.onrender.com/?error=auth_failed');
+        res.redirect('https://barside-api.onrender.com/?error=auth_failed');
     }
 });
 
