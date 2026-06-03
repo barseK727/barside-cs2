@@ -266,6 +266,8 @@
         function ProfilePage({ steamId, navigate }) {
             const { user: currentUser, refetch, logout } = useAuth();
             const [profile, setProfile] = React.useState(null);
+            const [userTournaments, setUserTournaments] = React.useState([]);
+            const [userLfgPosts, setUserLfgPosts] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
             const [editing, setEditing] = React.useState(false);
             const [formData, setFormData] = React.useState({});
@@ -276,9 +278,15 @@
             const [settings, setSettings] = React.useState({ emailNotifications: true, theme: 'dark' });
             const [inventory, setInventory] = React.useState({ items: [], total: 0, loading: false });
             
+            const isAdmin = currentUser?.isAdmin === true;
+            const isOwnProfile = currentUser?.steamId === steamId;
+            const canEdit = isOwnProfile || isAdmin;
+            
             React.useEffect(() => {
                 api.get(`/profile/${steamId}`).then(res => {
                     setProfile(res.data.user);
+                    setUserTournaments(res.data.tournaments || []);
+                    setUserLfgPosts(res.data.lfgPosts || []);
                     setFormData({
                         displayName: res.data.user.displayName || '',
                         region: res.data.user.region || 'RU',
@@ -289,7 +297,7 @@
                     setLoading(false);
                 }).catch(() => setLoading(false));
                 
-                if (currentUser?.steamId === steamId) {
+                if (isOwnProfile) {
                     api.get('/balance').then(res => setBalance(res.data.balance)).catch(console.error);
                 }
             }, [steamId, currentUser]);
@@ -317,14 +325,6 @@
                 return rarityMap[rarity] || 'rarity-consumer';
             };
             
-            const rolesList = [
-                { key: 'IGL', name: '👑 Капитан (IGL)', icon: 'crown', color: '#ffd700' },
-                { key: 'AWP', name: '🔫 Снайпер (AWP)', icon: 'crosshairs', color: '#4caf50' },
-                { key: 'ENTRY', name: '⚡ Энтри-фрэгер', icon: 'bolt', color: '#ff9800' },
-                { key: 'RIFLER', name: '🎯 Рифлер', icon: 'crosshairs', color: '#2196f3' },
-                { key: 'LURKER', name: '👤 Люркер', icon: 'eye-slash', color: '#9c27b0' }
-            ];
-            
             const handleUpdate = async () => {
                 try {
                     await api.put(`/profile/${steamId}`, formData);
@@ -335,6 +335,30 @@
                     showToast('Профиль успешно обновлён', 'success', 'Сохранено');
                 } catch (err) {
                     showToast('Ошибка при обновлении профиля', 'error', 'Ошибка');
+                }
+            };
+            
+            const handleAdminUpdate = async (field, value) => {
+                try {
+                    const updateData = { ...formData };
+                    if (field === 'balance') updateData.balance = value;
+                    else if (field === 'isAdmin') updateData.isAdmin = value;
+                    else if (field === 'isBanned') updateData.isBanned = value;
+                    else updateData[field] = value;
+                    
+                    await api.put(`/profile/${steamId}`, updateData);
+                    const res = await api.get(`/profile/${steamId}`);
+                    setProfile(res.data.user);
+                    setFormData({
+                        displayName: res.data.user.displayName || '',
+                        region: res.data.user.region || 'RU',
+                        role: res.data.user.role || 'RIFLER',
+                        hasMic: res.data.user.hasMic || false,
+                        bio: res.data.user.bio || ''
+                    });
+                    showToast('Профиль обновлён админом', 'success', 'Админ');
+                } catch (err) {
+                    showToast('Ошибка обновления', 'error', 'Ошибка');
                 }
             };
             
@@ -353,7 +377,13 @@
             if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
             if (!profile) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Пользователь не найден');
             
-            const isOwnProfile = currentUser?.steamId === steamId;
+            const rolesList = [
+                { key: 'IGL', name: '👑 Капитан (IGL)', icon: 'crown', color: '#ffd700' },
+                { key: 'AWP', name: '🔫 Снайпер (AWP)', icon: 'crosshairs', color: '#4caf50' },
+                { key: 'ENTRY', name: '⚡ Энтри-фрэгер', icon: 'bolt', color: '#ff9800' },
+                { key: 'RIFLER', name: '🎯 Рифлер', icon: 'crosshairs', color: '#2196f3' },
+                { key: 'LURKER', name: '👤 Люркер', icon: 'eye-slash', color: '#9c27b0' }
+            ];
             
             return React.createElement('div', { className: 'container' },
                 React.createElement('div', { className: 'card' },
@@ -362,54 +392,32 @@
                         React.createElement('div', { style: { flex: 1 } },
                             React.createElement('h1', { style: { fontSize: '28px', marginBottom: '10px' } }, profile.displayName || profile.steamNickname),
                             React.createElement('p', { className: 'text-gray' }, `Steam: ${profile.steamNickname}`),
+                            profile.isBanned && React.createElement('p', { style: { color: '#f44336', marginTop: '5px' } }, '⚠️ Пользователь забанен'),
                             React.createElement('div', { className: 'flex', style: { marginTop: '15px' } },
                                 React.createElement('span', { className: 'text-green' }, profile.region === 'RU' ? '🇷🇺 Россия' : profile.region === 'EU' ? '🇪🇺 Европа' : profile.region === 'NA' ? '🇺🇸 США' : '🌏 Азия'),
                                 React.createElement('span', { className: 'text-gray' }, ' • '),
                                 React.createElement('span', { className: 'text-green' }, profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'),
-                                profile.hasMic && React.createElement(React.Fragment, null, React.createElement('span', { className: 'text-gray' }, ' • '), React.createElement('span', { className: 'text-green' }, '🎤 Микрофон'))
+                                profile.hasMic && React.createElement(React.Fragment, null,
+                                    React.createElement('span', { className: 'text-gray' }, ' • '),
+                                    React.createElement('span', { className: 'text-green' }, '🎤 Микрофон')
+                                )
                             )
                         ),
-                        isOwnProfile && React.createElement('div', null,
-                            React.createElement('div', { className: 'balance', style: { marginBottom: '10px' } }, `💰 ${balance} ₽`),
-                            React.createElement('button', { onClick: () => setShowTopup(true), className: 'btn btn-primary', style: { padding: '8px 16px', fontSize: '12px' } }, 'Пополнить'),
+                        canEdit && React.createElement('div', null,
+                            React.createElement('div', { className: 'balance', style: { marginBottom: '10px' } }, `💰 ${isOwnProfile ? balance : profile.balance} ₽`),
+                            isOwnProfile && React.createElement('button', { onClick: () => setShowTopup(true), className: 'btn btn-primary', style: { padding: '8px 16px', fontSize: '12px' } }, 'Пополнить'),
                             React.createElement('button', { onClick: () => setEditing(!editing), className: 'btn btn-outline', style: { marginLeft: '10px', padding: '8px 16px', fontSize: '12px' } }, editing ? 'Отмена' : 'Редактировать'),
-                            React.createElement('button', { onClick: () => setShowSettings(true), className: 'btn btn-outline', style: { marginLeft: '10px', padding: '8px 16px', fontSize: '12px' } }, React.createElement('i', { className: 'fas fa-cog' }), ' Настройки')
+                            isAdmin && React.createElement('button', { onClick: () => setShowSettings(true), className: 'btn btn-outline', style: { marginLeft: '10px', padding: '8px 16px', fontSize: '12px' } }, React.createElement('i', { className: 'fas fa-cog' }), ' Настройки')
                         )
                     ),
+                    
                     profile.bio && React.createElement('div', { style: { marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #333' } },
                         React.createElement('h3', { className: 'text-green', style: { marginBottom: '10px' } }, 'О себе'),
                         React.createElement('p', { className: 'text-gray' }, profile.bio)
                     )
                 ),
                 
-                React.createElement('div', { className: 'inventory-section', style: { marginTop: '30px' } },
-                    React.createElement('div', { className: 'inventory-header' },
-                        React.createElement('h3', { className: 'text-green', style: { fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px' } }, React.createElement('i', { className: 'fas fa-box' }), ' CS2 Инвентарь'),
-                        React.createElement('div', { className: 'inventory-stats' },
-                            React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '🎒 Всего предметов:'), React.createElement('span', null, inventory.total)),
-                            React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '💎 Уникальных:'), React.createElement('span', null, inventory.items.length))
-                        )
-                    ),
-                    inventory.loading ? React.createElement('div', { className: 'text-center', style: { padding: '40px' } },
-                        React.createElement('i', { className: 'fas fa-spinner fa-spin', style: { fontSize: '32px', color: 'var(--primary)' } }),
-                        React.createElement('p', { className: 'text-gray', style: { marginTop: '12px' } }, 'Загрузка инвентаря...')
-                    ) : inventory.total === 0 ? React.createElement('div', { className: 'card', style: { textAlign: 'center', padding: '40px' } },
-                        React.createElement('i', { className: 'fas fa-lock', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px' } }),
-                        React.createElement('p', { className: 'text-gray' }, 'Инвентарь приватный или не найден'),
-                        React.createElement('p', { className: 'text-muted', style: { fontSize: '12px', marginTop: '8px' } }, 'Убедитесь, что ваш инвентарь CS2 открыт в настройках профиля Steam')
-                    ) : React.createElement('div', { className: 'inventory-grid' },
-                        inventory.items.slice(0, 48).map(item => React.createElement('div', { key: item.assetid, className: 'inventory-item', title: item.name },
-                            item.icon && React.createElement('img', { src: item.icon, alt: item.name }),
-                            React.createElement('div', { className: 'inventory-item-name' }, item.name.length > 25 ? item.name.substring(0, 22) + '...' : item.name),
-                            React.createElement('span', { className: `inventory-item-rarity ${getRarityClass(item.rarity)}` }, item.rarity),
-                            item.quantity > 1 && React.createElement('div', { className: 'inventory-item-quantity' }, `x${item.quantity}`)
-                        ))
-                    ),
-                    inventory.items.length > 48 && React.createElement('div', { className: 'text-center', style: { marginTop: '16px' } },
-                        React.createElement('p', { className: 'text-muted', style: { fontSize: '12px' } }, `Показано 48 из ${inventory.items.length} предметов`)
-                    )
-                ),
-                
+                // ФОРМА РЕДАКТИРОВАНИЯ - СРАЗУ ПОД ПЛАШКОЙ (перед инвентарём)
                 editing && React.createElement('div', { className: 'card', style: { marginTop: '20px' } },
                     React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, 'Редактировать профиль'),
                     React.createElement('div', { className: 'form-group' },
@@ -446,9 +454,91 @@
                         React.createElement('label', null, 'О себе'),
                         React.createElement('textarea', { className: 'form-input', value: formData.bio, onChange: (e) => setFormData({ ...formData, bio: e.target.value }), rows: 4, placeholder: 'Расскажите о себе...' })
                     ),
-                    React.createElement('button', { onClick: handleUpdate, className: 'btn btn-primary' }, 'Сохранить')
+                    // Админские поля
+                    isAdmin && React.createElement(React.Fragment, null,
+                        React.createElement('div', { style: { borderTop: '1px solid rgba(76,0,255,0.2)', marginTop: '10px', paddingTop: '20px' } },
+                            React.createElement('h3', { className: 'text-green', style: { marginBottom: '15px' } }, 'Админ-панель'),
+                            React.createElement('div', { className: 'grid-2' },
+                                React.createElement('div', { className: 'form-group' },
+                                    React.createElement('label', null, 'Баланс'),
+                                    React.createElement('input', { type: 'number', className: 'form-input', value: profile.balance, onChange: (e) => handleAdminUpdate('balance', parseInt(e.target.value)) })
+                                ),
+                                React.createElement('div', { className: 'form-group' },
+                                    React.createElement('label', null, 'Права админа'),
+                                    React.createElement('select', { className: 'form-input', value: profile.isAdmin ? 'true' : 'false', onChange: (e) => handleAdminUpdate('isAdmin', e.target.value === 'true') },
+                                        React.createElement('option', { value: 'false' }, 'Обычный пользователь'),
+                                        React.createElement('option', { value: 'true' }, 'Администратор')
+                                    )
+                                ),
+                                React.createElement('div', { className: 'form-group' },
+                                    React.createElement('label', null, 'Статус'),
+                                    React.createElement('select', { className: 'form-input', value: profile.isBanned ? 'true' : 'false', onChange: (e) => handleAdminUpdate('isBanned', e.target.value === 'true') },
+                                        React.createElement('option', { value: 'false' }, 'Активен'),
+                                        React.createElement('option', { value: 'true' }, 'Забанен')
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    React.createElement('button', { onClick: handleUpdate, className: 'btn btn-primary', style: { marginTop: '10px' } }, 'Сохранить изменения')
                 ),
                 
+                // ИНВЕНТАРЬ (ПОСЛЕ ФОРМЫ РЕДАКТИРОВАНИЯ)
+                React.createElement('div', { className: 'inventory-section', style: { marginTop: '30px' } },
+                    React.createElement('div', { className: 'inventory-header' },
+                        React.createElement('h3', { className: 'text-green', style: { fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px' } }, React.createElement('i', { className: 'fas fa-box' }), ' CS2 Инвентарь'),
+                        React.createElement('div', { className: 'inventory-stats' },
+                            React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '🎒 Всего предметов:'), React.createElement('span', null, inventory.total)),
+                            React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '💎 Уникальных:'), React.createElement('span', null, inventory.items.length))
+                        )
+                    ),
+                    inventory.loading ? React.createElement('div', { className: 'text-center', style: { padding: '40px' } },
+                        React.createElement('i', { className: 'fas fa-spinner fa-spin', style: { fontSize: '32px', color: 'var(--primary)' } }),
+                        React.createElement('p', { className: 'text-gray', style: { marginTop: '12px' } }, 'Загрузка инвентаря...')
+                    ) : inventory.total === 0 ? React.createElement('div', { className: 'card', style: { textAlign: 'center', padding: '40px' } },
+                        React.createElement('i', { className: 'fas fa-lock', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px' } }),
+                        React.createElement('p', { className: 'text-gray' }, 'Инвентарь приватный или не найден'),
+                        React.createElement('p', { className: 'text-muted', style: { fontSize: '12px', marginTop: '8px' } }, 'Убедитесь, что ваш инвентарь CS2 открыт в настройках профиля Steam')
+                    ) : React.createElement('div', { className: 'inventory-grid' },
+                        inventory.items.slice(0, 48).map(item => React.createElement('div', { key: item.assetid, className: 'inventory-item', title: item.name },
+                            item.icon && React.createElement('img', { src: item.icon, alt: item.name }),
+                            React.createElement('div', { className: 'inventory-item-name' }, item.name.length > 25 ? item.name.substring(0, 22) + '...' : item.name),
+                            React.createElement('span', { className: `inventory-item-rarity ${getRarityClass(item.rarity)}` }, item.rarity),
+                            item.quantity > 1 && React.createElement('div', { className: 'inventory-item-quantity' }, `x${item.quantity}`)
+                        ))
+                    ),
+                    inventory.items.length > 48 && React.createElement('div', { className: 'text-center', style: { marginTop: '16px' } },
+                        React.createElement('p', { className: 'text-muted', style: { fontSize: '12px' } }, `Показано 48 из ${inventory.items.length} предметов`)
+                    )
+                ),
+                
+                // ТУРНИРЫ ПОЛЬЗОВАТЕЛЯ
+                userTournaments.length > 0 && React.createElement('div', { className: 'card', style: { marginTop: '30px' } },
+                    React.createElement('h3', { className: 'text-green', style: { marginBottom: '15px' } }, '🏆 Участие в турнирах'),
+                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+                        userTournaments.map(t => React.createElement('div', { key: t.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' } },
+                            React.createElement('span', null, t.title),
+                            React.createElement('span', { className: 'text-gray' }, t.prizePool),
+                            React.createElement('button', { onClick: () => navigate('/tournaments'), className: 'btn btn-primary', style: { padding: '4px 12px', fontSize: '12px' } }, 'Подробнее')
+                        ))
+                    )
+                ),
+                
+                // АНКЕТЫ ПОЛЬЗОВАТЕЛЯ
+                userLfgPosts.length > 0 && React.createElement('div', { className: 'card', style: { marginTop: '20px' } },
+                    React.createElement('h3', { className: 'text-green', style: { marginBottom: '15px' } }, '📋 Активные анкеты'),
+                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+                        userLfgPosts.map(post => React.createElement('div', { key: post.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' } },
+                            React.createElement('div', null,
+                                React.createElement('div', null, post.title),
+                                React.createElement('span', { className: 'text-gray', style: { fontSize: '12px' } }, `Ищет ${post.playersNeeded} игроков`)
+                            ),
+                            React.createElement('button', { onClick: () => navigate('/lfg'), className: 'btn btn-primary', style: { padding: '4px 12px', fontSize: '12px' } }, 'Перейти')
+                        ))
+                    )
+                ),
+                
+                // МОДАЛЬНЫЕ ОКНА (настройки и пополнение)
                 showSettings && React.createElement('div', { className: 'modal-overlay', onClick: () => setShowSettings(false) },
                     React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation() },
                         React.createElement('div', { className: 'modal-header' },
@@ -752,7 +842,7 @@
                                 Object.keys(rolesNeeded).filter(k => rolesNeeded[k]).length === 0 && React.createElement('p', { className: 'text-muted', style: { fontSize: '12px' } }, 'Роли не указаны')
                             ),
                             post.description && React.createElement('p', { className: 'text-gray', style: { marginBottom: '15px', fontSize: '13px', lineHeight: '1.5' } }, post.description),
-                            React.createElement('a', { href: `https://steamcommunity.com/profiles/${post.author.steamId}`, target: '_blank', rel: 'noopener noreferrer', className: 'btn btn-primary', style: { width: '100%', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' } }, 
+                            !isAuthor && React.createElement('a', { href: `https://steamcommunity.com/profiles/${post.author.steamId}`, target: '_blank', rel: 'noopener noreferrer', className: 'btn btn-primary', style: { width: '100%', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' } }, 
                                 React.createElement('i', { className: 'fab fa-steam' }), ' Предложить дружбу'
                             ),
                             !isAuthor && React.createElement('button', { onClick: async () => {
@@ -1080,10 +1170,15 @@
         }
         
         // ============= АДМИН ПАНЕЛЬ =============
+        // ============= АДМИН ПАНЕЛЬ =============
         function AdminPanel() {
             const { user } = useAuth();
             const [users, setUsers] = React.useState([]);
             const [showTournamentForm, setShowTournamentForm] = React.useState(false);
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [searchResults, setSearchResults] = React.useState([]);
+            const [searching, setSearching] = React.useState(false);
+            const [tournaments, setTournaments] = React.useState([]);
             const [newTournament, setNewTournament] = React.useState({
                 title: '', description: '', prizePool: '', date: '', entryFee: 0, maxTeams: 16, format: '5x5', rules: '', schedule: ''
             });
@@ -1091,8 +1186,57 @@
             React.useEffect(() => {
                 if (user?.isAdmin) {
                     api.get('/admin/users').then(res => setUsers(res.data.data || [])).catch(console.error);
+                    api.get('/tournaments').then(res => setTournaments(res.data.data || [])).catch(console.error);
                 }
             }, [user]);
+            
+            const handleSearch = async () => {
+                if (!searchQuery.trim()) {
+                    setSearchResults([]);
+                    return;
+                }
+                setSearching(true);
+                try {
+                    const res = await api.get(`/admin/search?query=${encodeURIComponent(searchQuery)}`);
+                    setSearchResults(res.data.data || []);
+                } catch (err) {
+                    showToast('Ошибка поиска', 'error', 'Ошибка');
+                }
+                setSearching(false);
+            };
+            
+            const deleteTournament = async (tournamentId) => {
+                const confirmed = await customConfirm('Удалить турнир?');
+                if (confirmed) {
+                    try {
+                        await api.delete(`/tournaments/${tournamentId}`);
+                        setTournaments(tournaments.filter(t => t.id !== tournamentId));
+                        showToast('Турнир удалён', 'success', 'Удалено');
+                    } catch (err) {
+                        showToast('Ошибка удаления', 'error', 'Ошибка');
+                    }
+                }
+            };
+            
+            const deleteLfgPost = async (postId) => {
+                const confirmed = await customConfirm('Удалить анкету?');
+                if (confirmed) {
+                    try {
+                        await api.delete(`/lfg/${postId}`);
+                        // Обновляем результаты поиска
+                        if (searchResults.length) {
+                            const updatedResults = searchResults.map(result => ({
+                                ...result,
+                                lfgPosts: result.lfgPosts?.filter(p => p.id !== postId) || []
+                            }));
+                            setSearchResults(updatedResults);
+                        }
+                        showToast('Анкета удалена', 'success', 'Удалено');
+                    } catch (err) {
+                        showToast('Ошибка удаления', 'error', 'Ошибка');
+                    }
+                }
+            };
             
             const createTournament = async () => {
                 if (!newTournament.title || !newTournament.prizePool || !newTournament.date) {
@@ -1104,7 +1248,11 @@
                     showToast('Турнир успешно создан!', 'success', 'Создано');
                     setShowTournamentForm(false);
                     setNewTournament({ title: '', description: '', prizePool: '', date: '', entryFee: 0, maxTeams: 16, format: '5x5', rules: '', schedule: '' });
-                } catch (err) { showToast('Ошибка создания турнира', 'error', 'Ошибка'); }
+                    const res = await api.get('/tournaments');
+                    setTournaments(res.data.data || []);
+                } catch (err) {
+                    showToast('Ошибка создания турнира', 'error', 'Ошибка');
+                }
             };
             
             const banUser = async (userId) => {
@@ -1115,55 +1263,178 @@
                         showToast('Пользователь забанен', 'success', 'Бан');
                         const res = await api.get('/admin/users');
                         setUsers(res.data.data || []);
-                    } catch (err) { showToast('Ошибка при бане', 'error', 'Ошибка'); }
+                    } catch (err) {
+                        showToast('Ошибка при бане', 'error', 'Ошибка');
+                    }
                 }
             };
             
-            if (!user?.isAdmin) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Доступ запрещён');
+            if (!user?.isAdmin) {
+                return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Доступ запрещён');
+            }
             
             return React.createElement('div', { className: 'container' },
-                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' } },
+                React.createElement('div', { style: { marginBottom: '30px' } },
                     React.createElement('h1', { style: { fontSize: '32px' } }, '👑 Админ-панель'),
-                    React.createElement('button', { onClick: () => setShowTournamentForm(true), className: 'btn btn-primary' }, '+ Создать турнир')
+                    React.createElement('p', { className: 'text-gray' }, 'Управление пользователями, турнирами и анкетами')
                 ),
-                showTournamentForm && React.createElement('div', { className: 'modal-overlay', onClick: () => setShowTournamentForm(false) },
-                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation(), style: { maxWidth: '600px' } },
-                        React.createElement('div', { className: 'modal-header' }, React.createElement('h2', { className: 'text-green' }, 'Создание турнира'), React.createElement('button', { className: 'modal-close', onClick: () => setShowTournamentForm(false) }, '✕')),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Название *'), React.createElement('input', { className: 'form-input', value: newTournament.title, onChange: (e) => setNewTournament({ ...newTournament, title: e.target.value }) })),
-                        React.createElement('div', { className: 'grid-2' },
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Призовой фонд *'), React.createElement('input', { className: 'form-input', value: newTournament.prizePool, onChange: (e) => setNewTournament({ ...newTournament, prizePool: e.target.value }) })),
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Дата *'), React.createElement('input', { type: 'datetime-local', className: 'form-input', value: newTournament.date, onChange: (e) => setNewTournament({ ...newTournament, date: e.target.value }) }))
-                        ),
-                        React.createElement('div', { className: 'grid-2' },
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Взнос (₽)'), React.createElement('input', { type: 'number', className: 'form-input', value: newTournament.entryFee, onChange: (e) => setNewTournament({ ...newTournament, entryFee: parseInt(e.target.value) }) })),
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Макс. команд'), React.createElement('input', { type: 'number', className: 'form-input', value: newTournament.maxTeams, onChange: (e) => setNewTournament({ ...newTournament, maxTeams: parseInt(e.target.value) }) }))
-                        ),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Формат'), React.createElement('select', { className: 'form-input', value: newTournament.format, onChange: (e) => setNewTournament({ ...newTournament, format: e.target.value }) }, React.createElement('option', { value: '5x5' }, '5x5'), React.createElement('option', { value: '2x2' }, '2x2'))),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Описание'), React.createElement('textarea', { className: 'form-input', rows: 3, value: newTournament.description, onChange: (e) => setNewTournament({ ...newTournament, description: e.target.value }) })),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Правила'), React.createElement('textarea', { className: 'form-input', rows: 4, value: newTournament.rules, onChange: (e) => setNewTournament({ ...newTournament, rules: e.target.value }) })),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Расписание'), React.createElement('textarea', { className: 'form-input', rows: 3, value: newTournament.schedule, onChange: (e) => setNewTournament({ ...newTournament, schedule: e.target.value }) })),
-                        React.createElement('button', { onClick: createTournament, className: 'btn btn-primary', style: { width: '100%' } }, 'Создать турнир')
+                
+                // ПОИСК ПОЛЬЗОВАТЕЛЕЙ
+                React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('h3', { className: 'text-green', style: { marginBottom: '15px' } }, '🔍 Поиск пользователей'),
+                    React.createElement('div', { className: 'flex', style: { gap: '10px' } },
+                        React.createElement('input', {
+                            type: 'text',
+                            className: 'form-input',
+                            style: { flex: 1 },
+                            value: searchQuery,
+                            onChange: (e) => setSearchQuery(e.target.value),
+                            placeholder: 'Поиск по нику или Steam имени...',
+                            onKeyPress: (e) => e.key === 'Enter' && handleSearch()
+                        }),
+                        React.createElement('button', { onClick: handleSearch, className: 'btn btn-primary', disabled: searching }, searching ? 'Поиск...' : 'Найти')
+                    ),
+                    
+                    // Результаты поиска
+                    searchResults.length > 0 && React.createElement('div', { style: { marginTop: '20px' } },
+                        React.createElement('h4', { className: 'text-green', style: { marginBottom: '15px' } }, `Результаты (${searchResults.length})`),
+                        searchResults.map(foundUser => React.createElement('div', { key: foundUser.id, className: 'card', style: { marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${foundUser.steamId}`) },
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' } },
+                                React.createElement('img', { src: foundUser.steamAvatar, style: { width: '50px', height: '50px', borderRadius: '50%' } }),
+                                React.createElement('div', { style: { flex: 1 } },
+                                    React.createElement('h3', { style: { fontSize: '18px' } }, foundUser.displayName || foundUser.steamNickname),
+                                    React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, `Баланс: ${foundUser.balance} ₽ | ${foundUser.isBanned ? '🔴 Забанен' : '🟢 Активен'}`)
+                                ),
+                                React.createElement('div', { style: { display: 'flex', gap: '10px' } },
+                                    React.createElement('button', { onClick: (e) => { e.stopPropagation(); navigate(`/profile/${foundUser.steamId}`); }, className: 'btn btn-primary', style: { padding: '6px 12px', fontSize: '12px' } }, 'Редактировать'),
+                                    !foundUser.isBanned && React.createElement('button', { onClick: (e) => { e.stopPropagation(); banUser(foundUser.id); }, className: 'btn', style: { background: '#f44336', padding: '6px 12px', fontSize: '12px' } }, 'Забанить')
+                                )
+                            ),
+                            // Турниры пользователя
+                            foundUser.tournaments && foundUser.tournaments.length > 0 && React.createElement('div', { style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(76,0,255,0.2)' } },
+                                React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '🏆 Участвует в турнирах:'),
+                                React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                    foundUser.tournaments.map(t => React.createElement('span', { key: t.id, className: 'status-badge status-upcoming', style: { fontSize: '11px' } }, t.title))
+                                )
+                            ),
+                            // Анкеты пользователя
+                            foundUser.lfgPosts && foundUser.lfgPosts.length > 0 && React.createElement('div', { style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(76,0,255,0.2)' } },
+                                React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '📋 Анкеты:'),
+                                React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                    foundUser.lfgPosts.map(post => React.createElement('span', { key: post.id, className: 'status-badge status-upcoming', style: { fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' } },
+                                        post.title,
+                                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); deleteLfgPost(post.id); }, style: { background: 'none', border: 'none', color: '#f44336', cursor: 'pointer', fontSize: '12px' } }, '✕')
+                                    ))
+                                )
+                            )
+                        ))
                     )
                 ),
+                
+                // ТУРНИРЫ
+                React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' } },
+                        React.createElement('h2', { className: 'text-green' }, '🏆 Турниры'),
+                        React.createElement('button', { onClick: () => setShowTournamentForm(true), className: 'btn btn-primary' }, '+ Создать турнир')
+                    ),
+                    tournaments.length === 0 ? React.createElement('p', { className: 'text-gray' }, 'Нет турниров') :
+                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+                        tournaments.map(t => React.createElement('div', { key: t.id, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' } },
+                            React.createElement('div', null,
+                                React.createElement('div', null, t.title),
+                                React.createElement('span', { className: 'text-gray', style: { fontSize: '12px' } }, `${t.prizePool} • ${new Date(t.date).toLocaleDateString('ru-RU')}`)
+                            ),
+                            React.createElement('button', { onClick: () => deleteTournament(t.id), className: 'btn', style: { background: '#f44336', padding: '6px 12px', fontSize: '12px' } }, 'Удалить')
+                        ))
+                    )
+                ),
+                
+                // ПОЛЬЗОВАТЕЛИ (таблица)
                 React.createElement('div', { className: 'card' },
-                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, 'Пользователи'),
+                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, 'Все пользователи'),
                     React.createElement('div', { style: { overflowX: 'auto' } },
                         React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
-                            React.createElement('thead', null, React.createElement('tr', { style: { borderBottom: '1px solid #333', textAlign: 'left' } },
-                                React.createElement('th', { style: { padding: '10px' } }, 'Ник'),
-                                React.createElement('th', { style: { padding: '10px' } }, 'Steam ID'),
-                                React.createElement('th', { style: { padding: '10px' } }, 'Баланс'),
-                                React.createElement('th', { style: { padding: '10px' } }, 'Статус'),
-                                React.createElement('th', { style: { padding: '10px' } }, 'Действия')
-                            )),
-                            React.createElement('tbody', null, users.map(u => React.createElement('tr', { key: u.id, style: { borderBottom: '1px solid #333' } },
-                                React.createElement('td', { style: { padding: '10px' } }, u.displayName || u.steamNickname),
-                                React.createElement('td', { style: { padding: '10px' } }, u.steamId.slice(-8)),
-                                React.createElement('td', { style: { padding: '10px' } }, `${u.balance} ₽`),
-                                React.createElement('td', { style: { padding: '10px' } }, u.isBanned ? '🔴 Забанен' : '🟢 Активен'),
-                                React.createElement('td', { style: { padding: '10px' } }, !u.isBanned && React.createElement('button', { onClick: () => banUser(u.id), className: 'btn', style: { background: '#f44336', padding: '5px 10px', fontSize: '12px' } }, 'Забанить'))
-                            )))
+                            React.createElement('thead', null,
+                                React.createElement('tr', { style: { borderBottom: '1px solid #333', textAlign: 'left' } },
+                                    React.createElement('th', { style: { padding: '10px' } }, 'Ник'),
+                                    React.createElement('th', { style: { padding: '10px' } }, 'Steam ID'),
+                                    React.createElement('th', { style: { padding: '10px' } }, 'Баланс'),
+                                    React.createElement('th', { style: { padding: '10px' } }, 'Статус'),
+                                    React.createElement('th', { style: { padding: '10px' } }, 'Действия')
+                                )
+                            ),
+                            React.createElement('tbody', null,
+                                users.map(u => React.createElement('tr', { key: u.id, style: { borderBottom: '1px solid #333' } },
+                                    React.createElement('td', { style: { padding: '10px' } },
+                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                                            React.createElement('img', { src: u.steamAvatar, style: { width: '30px', height: '30px', borderRadius: '50%' } }),
+                                            u.displayName || u.steamNickname
+                                        )
+                                    ),
+                                    React.createElement('td', { style: { padding: '10px' } }, u.steamId.slice(-8)),
+                                    React.createElement('td', { style: { padding: '10px' } }, `${u.balance} ₽`),
+                                    React.createElement('td', { style: { padding: '10px' } }, u.isBanned ? '🔴 Забанен' : '🟢 Активен'),
+                                    React.createElement('td', { style: { padding: '10px' } },
+                                        React.createElement('button', { onClick: () => navigate(`/profile/${u.steamId}`), className: 'btn btn-primary', style: { padding: '5px 10px', fontSize: '12px', marginRight: '5px' } }, 'Ред.'),
+                                        !u.isBanned && React.createElement('button', { onClick: () => banUser(u.id), className: 'btn', style: { background: '#f44336', padding: '5px 10px', fontSize: '12px' } }, 'Бан')
+                                    )
+                                ))
+                            )
                         )
+                    )
+                ),
+                
+                // МОДАЛЬНОЕ ОКНО СОЗДАНИЯ ТУРНИРА
+                showTournamentForm && React.createElement('div', { className: 'modal-overlay', onClick: () => setShowTournamentForm(false) },
+                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation(), style: { maxWidth: '600px' } },
+                        React.createElement('div', { className: 'modal-header' },
+                            React.createElement('h2', { className: 'text-green' }, 'Создание турнира'),
+                            React.createElement('button', { className: 'modal-close', onClick: () => setShowTournamentForm(false) }, '✕')
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Название *'),
+                            React.createElement('input', { className: 'form-input', value: newTournament.title, onChange: (e) => setNewTournament({ ...newTournament, title: e.target.value }) })
+                        ),
+                        React.createElement('div', { className: 'grid-2' },
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Призовой фонд *'),
+                                React.createElement('input', { className: 'form-input', value: newTournament.prizePool, onChange: (e) => setNewTournament({ ...newTournament, prizePool: e.target.value }) })
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Дата *'),
+                                React.createElement('input', { type: 'datetime-local', className: 'form-input', value: newTournament.date, onChange: (e) => setNewTournament({ ...newTournament, date: e.target.value }) })
+                            )
+                        ),
+                        React.createElement('div', { className: 'grid-2' },
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Взнос (₽)'),
+                                React.createElement('input', { type: 'number', className: 'form-input', value: newTournament.entryFee, onChange: (e) => setNewTournament({ ...newTournament, entryFee: parseInt(e.target.value) }) })
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Макс. команд'),
+                                React.createElement('input', { type: 'number', className: 'form-input', value: newTournament.maxTeams, onChange: (e) => setNewTournament({ ...newTournament, maxTeams: parseInt(e.target.value) }) })
+                            )
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Формат'),
+                            React.createElement('select', { className: 'form-input', value: newTournament.format, onChange: (e) => setNewTournament({ ...newTournament, format: e.target.value }) },
+                                React.createElement('option', { value: '5x5' }, '5x5'),
+                                React.createElement('option', { value: '2x2' }, '2x2')
+                            )
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Описание'),
+                            React.createElement('textarea', { className: 'form-input', rows: 3, value: newTournament.description, onChange: (e) => setNewTournament({ ...newTournament, description: e.target.value }) })
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Правила'),
+                            React.createElement('textarea', { className: 'form-input', rows: 4, value: newTournament.rules, onChange: (e) => setNewTournament({ ...newTournament, rules: e.target.value }) })
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Расписание'),
+                            React.createElement('textarea', { className: 'form-input', rows: 3, value: newTournament.schedule, onChange: (e) => setNewTournament({ ...newTournament, schedule: e.target.value }) })
+                        ),
+                        React.createElement('button', { onClick: createTournament, className: 'btn btn-primary', style: { width: '100%' } }, 'Создать турнир')
                     )
                 )
             );

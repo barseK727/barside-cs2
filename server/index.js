@@ -63,14 +63,14 @@ const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBD
 const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
 
 app.get('/api/auth/steam', (req, res) => {
-    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
+    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-web.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
     res.redirect(openIdUrl);
 });
 
 app.get('/api/auth/steam/callback', async (req, res) => {
     const claimedId = req.query['openid.claimed_id'];
     if (!claimedId) {
-        return res.redirect('https://barside-api.onrender.com/?error=auth_failed');
+        return res.redirect('https://barside-web.onrender.com/?error=auth_failed');
     }
     
     const steamId = claimedId.split('/').pop();
@@ -81,7 +81,7 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         const steamUser = steamResponse.data.response?.players?.[0];
         
         if (!steamUser) {
-            return res.redirect('https://barside-api.onrender.com/?error=steam_api_failed');
+            return res.redirect('https://barside-web.onrender.com/?error=steam_api_failed');
         }
         
         let db = loadDB();
@@ -130,20 +130,19 @@ app.get('/api/auth/steam/callback', async (req, res) => {
             saveDB(db);
         }
         
-        // Проверка бана
         if (db.bannedUsers && db.bannedUsers.includes(user.id)) {
             const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, banned: true })).toString('base64');
             res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            return res.redirect('https://barside-api.onrender.com/?error=banned');
+            return res.redirect('https://barside-web.onrender.com/?error=banned');
         }
         
         const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-        res.redirect('https://barside-api.onrender.com/');
+        res.redirect('https://barside-web.onrender.com/');
         
     } catch (error) {
         console.error('❌ Steam auth error:', error.message);
-        res.redirect('https://barside-api.onrender.com/?error=auth_failed');
+        res.redirect('https://barside-web.onrender.com/?error=auth_failed');
     }
 });
 
@@ -171,9 +170,7 @@ app.get('/api/auth/me', (req, res) => {
     res.json({ data: null });
 });
 
-// ============= ОСТАЛЬНЫЕ API =============
-
-// Получить инвентарь CS2
+// ============= ИНВЕНТАРЬ =============
 app.get('/api/inventory/:steamId', async (req, res) => {
     const { steamId } = req.params;
     try {
@@ -208,20 +205,34 @@ app.get('/api/inventory/:steamId', async (req, res) => {
     }
 });
 
-// Онлайн счётчик
+// ============= ОНЛАЙН СЧЁТЧИК =============
 const onlineSessions = new Set();
 app.get('/api/online', (req, res) => { res.json({ count: onlineSessions.size }); });
 app.post('/api/heartbeat', (req, res) => { const { sessionId } = req.body; if (sessionId) onlineSessions.add(sessionId); res.json({ success: true }); });
 
-// Профиль
+// ============= ПРОФИЛЬ =============
 app.get('/api/profile/:steamId', (req, res) => {
     const db = loadDB();
     const user = db.users.find(u => u.steamId === req.params.steamId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const isBanned = db.bannedUsers && db.bannedUsers.includes(user.id);
-    res.json({ user: { ...user, isBanned } });
+    
+    // Находим турниры, в которых участвует пользователь
+    const userTournaments = db.tournaments.filter(t => 
+        t.registeredTeams && t.registeredTeams.some(team => team.captainId === user.id)
+    ).map(t => ({ id: t.id, title: t.title, prizePool: t.prizePool, date: t.date }));
+    
+    // Находим анкеты пользователя
+    const userPosts = db.lfgPosts.filter(p => p.authorId === user.id);
+    
+    res.json({ 
+        user: { ...user, isBanned }, 
+        tournaments: userTournaments,
+        lfgPosts: userPosts
+    });
 });
 
+// Обновить профиль (обычный пользователь - только свои данные)
 app.put('/api/profile/:steamId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -230,13 +241,16 @@ app.put('/api/profile/:steamId', (req, res) => {
     const userIndex = db.users.findIndex(u => u.steamId === req.params.steamId);
     if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
     
-    // Проверяем права: админ может редактировать любого, обычный пользователь только себя
     const currentUser = db.users.find(u => u.id === payload.userId);
-    if (db.users[userIndex].id !== payload.userId && !currentUser?.isAdmin) {
+    const isAdmin = currentUser?.isAdmin;
+    const isOwnProfile = db.users[userIndex].id === payload.userId;
+    
+    // Только свой профиль или админ может редактировать
+    if (!isOwnProfile && !isAdmin) {
         return res.status(403).json({ error: 'Forbidden' });
     }
     
-    const { displayName, region, role, hasMic, bio, balance, isAdmin, isBanned } = req.body;
+    const { displayName, region, role, hasMic, bio, balance, isAdmin: makeAdmin, isBanned } = req.body;
     
     if (displayName !== undefined) db.users[userIndex].displayName = displayName || db.users[userIndex].displayName;
     if (region !== undefined) db.users[userIndex].region = region;
@@ -245,19 +259,17 @@ app.put('/api/profile/:steamId', (req, res) => {
     if (bio !== undefined) db.users[userIndex].bio = bio;
     
     // Только админ может менять баланс, isAdmin и бан
-    if (currentUser?.isAdmin) {
+    if (isAdmin) {
         if (balance !== undefined) db.users[userIndex].balance = balance;
-        if (isAdmin !== undefined) db.users[userIndex].isAdmin = isAdmin;
+        if (makeAdmin !== undefined) db.users[userIndex].isAdmin = makeAdmin;
         if (isBanned !== undefined) {
+            if (!db.bannedUsers) db.bannedUsers = [];
             if (isBanned) {
-                if (!db.bannedUsers) db.bannedUsers = [];
                 if (!db.bannedUsers.includes(db.users[userIndex].id)) {
                     db.bannedUsers.push(db.users[userIndex].id);
                 }
             } else {
-                if (db.bannedUsers) {
-                    db.bannedUsers = db.bannedUsers.filter(id => id !== db.users[userIndex].id);
-                }
+                db.bannedUsers = db.bannedUsers.filter(id => id !== db.users[userIndex].id);
             }
         }
     }
@@ -318,7 +330,6 @@ app.post('/api/lfg', (req, res) => {
     const { title, region, schedule, description, playersNeeded, rolesNeeded } = req.body;
     if (!title || !region || !schedule) return res.status(400).json({ error: 'Missing required fields' });
     
-    // Проверка: от 2 до 4 игроков
     const playersCount = playersNeeded || 5;
     if (playersCount < 2 || playersCount > 4) {
         return res.status(400).json({ error: 'Players needed must be between 2 and 4' });
@@ -350,7 +361,6 @@ app.delete('/api/lfg/:id', (req, res) => {
     const post = db.lfgPosts.find(p => p.id === req.params.id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
     
-    // Админ или автор может удалить
     if (post.authorId !== user.id && !user?.isAdmin) return res.status(403).json({ error: 'Forbidden' });
     
     db.lfgPosts = db.lfgPosts.filter(p => p.id !== req.params.id);
@@ -409,7 +419,6 @@ app.get('/api/admin/users', (req, res) => {
     const user = db.users.find(u => u.id === payload.userId);
     if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
     
-    // Добавляем информацию о бане
     const usersWithBan = db.users.map(u => ({ ...u, isBanned: db.bannedUsers?.includes(u.id) || false }));
     res.json({ data: usersWithBan });
 });
@@ -425,6 +434,41 @@ app.post('/api/admin/tournaments', (req, res) => {
     db.tournaments.push({ id: Date.now().toString(), ...req.body, status: 'UPCOMING', registeredTeams: [], createdAt: new Date().toISOString() });
     saveDB(db);
     res.status(201).json({ success: true });
+});
+
+// Поиск пользователей по имени (для админа)
+app.get('/api/admin/search', (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(403).json({ error: 'Admin only' });
+    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+    const db = loadDB();
+    const user = db.users.find(u => u.id === payload.userId);
+    if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    
+    const { query } = req.query;
+    if (!query) return res.json({ data: [] });
+    
+    const searchLower = query.toLowerCase();
+    const foundUsers = db.users.filter(u => 
+        (u.displayName && u.displayName.toLowerCase().includes(searchLower)) ||
+        (u.steamNickname && u.steamNickname.toLowerCase().includes(searchLower))
+    );
+    
+    // Для каждого найденного пользователя собираем его турниры и анкеты
+    const result = foundUsers.map(u => {
+        const userTournaments = db.tournaments.filter(t => 
+            t.registeredTeams && t.registeredTeams.some(team => team.captainId === u.id)
+        );
+        const userPosts = db.lfgPosts.filter(p => p.authorId === u.id);
+        return {
+            ...u,
+            isBanned: db.bannedUsers?.includes(u.id) || false,
+            tournaments: userTournaments,
+            lfgPosts: userPosts
+        };
+    });
+    
+    res.json({ data: result });
 });
 
 // ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
