@@ -1,4 +1,4 @@
-/* public/css/style.css - ОЧИЩЕННАЯ И ИСПРАВЛЕННАЯ ВЕРСИЯ */
+/* public/css/style.css - ИСПРАВЛЕННАЯ ВЕРСИЯ */
 
 /* ===== ПЕРЕМЕННЫЕ ===== */
 :root {
@@ -40,8 +40,7 @@ body {
     min-height: 100vh;
 }
 
-/* ===== ШАПКА ===== */
-/* ===== ШАПКА ===== */
+/* ===== ШАПКА - НА ВСЮ ШИРИНУ ===== */
 .header {
     background: rgba(10, 10, 15, 0.95);
     backdrop-filter: var(--blur-bg);
@@ -49,12 +48,12 @@ body {
     position: sticky;
     top: 0;
     z-index: 1000;
-    width: 100%;  /* ← ДОБАВИТЬ - на всю ширину */
+    width: 100%;
 }
 
 .header-content {
-    max-width: 1600px;  /* ← ОСТАВИТЬ - это ограничение внутри шапки */
-    margin: 0 auto;     /* ← ОСТАВИТЬ - центрирование контента */
+    max-width: 1600px;
+    margin: 0 auto;
     padding: 16px 32px;
     display: flex;
     justify-content: space-between;
@@ -63,6 +62,7 @@ body {
     gap: 20px;
 }
 
+/* ===== ЛОГО ===== */
 .logo {
     font-size: 28px;
     font-weight: 800;
@@ -209,6 +209,18 @@ body {
     transform: translateY(-2px);
 }
 
+/* ===== ОТСТУП ПОД ШАПКОЙ (ГЛАВНОЕ!) ===== */
+.page-wrapper {
+    padding-top: 40px;
+    min-height: calc(100vh - 80px);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
 /* ===== КАРТОЧКИ ===== */
 .card {
     background: var(--bg-card);
@@ -297,7 +309,7 @@ body {
     color: var(--text-muted);
 }
 
-/* ===== ТУРНИРЫ ===== */
+/* ===== ТУРНИРЫ И LFG ===== */
 .tournaments-grid, .lfg-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
@@ -646,12 +658,6 @@ textarea.form-input {
 }
 
 /* ===== УТИЛИТЫ ===== */
-.container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0 24px;
-}
-
 .text-center { text-align: center; }
 .text-green { color: #4caf50; }
 .text-gray { color: #888; }
@@ -701,14 +707,10 @@ textarea.form-input {
     50% { opacity: 0.5; transform: scale(1.2); }
 }
 
-.fade-in {
-    animation: fadeInUp 0.5s ease-out;
-}
-
-@keyframes fadeInUp {
+@keyframes slideDown {
     from {
         opacity: 0;
-        transform: translateY(30px);
+        transform: translateY(-20px);
     }
     to {
         opacity: 1;
@@ -747,6 +749,14 @@ textarea.form-input {
         justify-content: center;
     }
     
+    .page-wrapper {
+        padding-top: 24px;
+    }
+    
+    .container {
+        padding: 0 16px;
+    }
+    
     .stats-grid {
         grid-template-columns: 1fr;
         gap: 16px;
@@ -760,10 +770,6 @@ textarea.form-input {
     .profile-header {
         flex-direction: column;
         text-align: center;
-    }
-    
-    .container {
-        padding: 0 16px;
     }
     
     .profile-btn .profile-name {
@@ -797,7 +803,7 @@ textarea.form-input {
     }
 }
 
-/* ===== ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ LFG ===== */
+/* ===== ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ===== */
 .role-badge {
     display: inline-flex;
     align-items: center;
@@ -824,88 +830,9 @@ textarea.form-input {
     border: 1px solid rgba(255, 68, 68, 0.3);
 }
 
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 @media (max-width: 640px) {
     .role-badge {
         font-size: 10px;
         padding: 4px 8px;
-    }
-}
-
-/* ===== ОТСТУП ПОД ХЕДЕРОМ ===== */
-.main-content {
-    padding-top: 40px;
-    min-height: calc(100vh - 80px);
-}
-
-/* Адаптив для мобильных */
-@media (max-width: 768px) {
-    .main-content {
-        padding-top: 24px;
-    }
-}
-
-/* ===== АДАПТИВ ===== */
-@media (max-width: 768px) {
-    .header-content {
-        padding: 16px 20px;
-    }
-    
-    /* Отступ для контента под шапкой */
-    .container {
-        padding-top: 20px;
-    }
-}
-
-/* Добавьте в начало файла, после переменных */
-
-/* ===== ОБЩИЕ СТИЛИ ===== */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-/* ===== ШАПКА НА ВСЮ ШИРИНУ ===== */
-.header {
-    background: rgba(10, 10, 15, 0.95);
-    backdrop-filter: var(--blur-bg);
-    border-bottom: 1px solid rgba(76, 0, 255, 0.3);
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    width: 100%;  /* ← НА ВСЮ ШИРИНУ */
-}
-
-/* ===== ОТСТУП ПОД ШАПКОЙ ===== */
-.main-wrapper {
-    padding-top: 40px;
-    min-height: calc(100vh - 80px);
-}
-
-.container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0 24px;
-}
-
-/* Адаптив */
-@media (max-width: 768px) {
-    .main-wrapper {
-        padding-top: 24px;
-    }
-    
-    .container {
-        padding: 0 16px;
     }
 }
