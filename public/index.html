@@ -1204,8 +1204,10 @@
             }
             
             return React.createElement('div', null,
-                React.createElement(Header, { currentPage: currentPath === '/' ? '/' : currentPath.startsWith('/profile') ? '/profile' : currentPath, navigate }),
-                content
+                React.createElement(Header, { currentPage: ... , navigate }),
+                React.createElement('div', { className: 'main-wrapper', style: { flex: 1 } },
+                    content
+                )
             );
         }
         
