@@ -540,7 +540,11 @@
                         hasMic: res.data.user.hasMic || false,
                         bio: res.data.user.bio || ''
                     });
-                    showToast('Профиль обновлён админом', 'success', 'Админ');
+                    showToast('Профиль обновлён', 'success', 'Админ');
+                    // Обновляем баланс если это свой профиль
+                    if (isOwnProfile && field === 'balance') {
+                        setBalance(value);
+                    }
                 } catch (err) {
                     showToast('Ошибка обновления', 'error', 'Ошибка');
                 }
@@ -1184,6 +1188,7 @@
         }
         
         // ============= СТРАНИЦА ЧАТА =============
+        // ============= СТРАНИЦА ЧАТА =============
         function ChatPage({ userId, navigate }) {
             const { user } = useAuth();
             const [chatUser, setChatUser] = React.useState(null);
@@ -1199,45 +1204,31 @@
                 
                 console.log('Loading chat for userId:', userId);
                 
-                // Сначала получаем Steam ID пользователя через отдельный запрос
-                api.get(`/admin/users`).then(res => {
-                    const users = res.data.data || [];
-                    const foundUser = users.find(u => u.id === userId);
-                    if (foundUser) {
-                        console.log('Found user with steamId:', foundUser.steamId);
-                        
-                        // Загружаем профиль по Steam ID
-                        api.get(`/profile/${foundUser.steamId}`)
-                            .then(profileRes => {
-                                console.log('Profile loaded:', profileRes.data.user);
-                                setChatUser(profileRes.data.user);
-                            })
-                            .catch(err => {
-                                console.error('Profile error:', err);
-                                setError('Не удалось загрузить профиль');
-                            });
-                        
-                        // Загружаем сообщения (по ID, не по Steam ID)
-                        api.get(`/messages/${userId}`)
-                            .then(msgRes => {
-                                console.log('Messages loaded:', msgRes.data.data);
-                                setMessages(msgRes.data.data || []);
-                                setLoading(false);
-                            })
-                            .catch(err => {
-                                console.error('Messages error:', err);
-                                setError('Не удалось загрузить сообщения');
-                                setLoading(false);
-                            });
-                    } else {
+                // Загружаем информацию о пользователе по ID
+                api.get(`/user/by-id/${userId}`)
+                    .then(res => {
+                        console.log('User found:', res.data.user);
+                        setChatUser(res.data.user);
+                    })
+                    .catch(err => {
+                        console.error('User fetch error:', err);
                         setError('Пользователь не найден');
                         setLoading(false);
-                    }
-                }).catch(err => {
-                    console.error('Users list error:', err);
-                    setError('Ошибка загрузки пользователей');
-                    setLoading(false);
-                });
+                        return;
+                    });
+                
+                // Загружаем сообщения
+                api.get(`/messages/${userId}`)
+                    .then(res => {
+                        console.log('Messages loaded:', res.data.data);
+                        setMessages(res.data.data || []);
+                        setLoading(false);
+                    })
+                    .catch(err => {
+                        console.error('Messages error:', err);
+                        setError('Не удалось загрузить сообщения');
+                        setLoading(false);
+                    });
             }, [userId, user]);
             
             // Скролл
@@ -1247,21 +1238,28 @@
                 }
             }, [messages]);
             
+            // Обновление сообщений каждые 3 секунды
+            React.useEffect(() => {
+                const interval = setInterval(() => {
+                    if (userId) {
+                        api.get(`/messages/${userId}`).then(res => {
+                            setMessages(res.data.data || []);
+                        }).catch(console.error);
+                    }
+                }, 3000);
+                return () => clearInterval(interval);
+            }, [userId]);
+            
             // Отправка сообщения
             const sendMessage = async (e) => {
                 e.preventDefault();
                 if (!newMessage.trim()) return;
                 
-                console.log('Sending message to userId:', userId);
-                
                 try {
                     await api.post(`/messages/${userId}`, { text: newMessage });
                     setNewMessage('');
-                    
-                    // Перезагружаем сообщения
                     const res = await api.get(`/messages/${userId}`);
                     setMessages(res.data.data || []);
-                    console.log('Messages after send:', res.data.data);
                 } catch (err) {
                     console.error('Send error:', err);
                     showToast('Ошибка отправки сообщения', 'error', 'Ошибка');
@@ -1672,8 +1670,16 @@ function AdminPanel() {
                             React.createElement('td', { style: { padding: '10px' } }, `${u.balance} ₽`),
                             React.createElement('td', { style: { padding: '10px' } }, u.isBanned ? '🔴 Забанен' : '🟢 Активен'),
                             React.createElement('td', { style: { padding: '10px' } },
-                                React.createElement('button', { onClick: () => navigate(`/profile/${u.steamId}`), className: 'btn btn-primary', style: { padding: '5px 10px', fontSize: '12px', marginRight: '5px' } }, 'Ред.'),
-                                !u.isBanned && React.createElement('button', { onClick: () => banUser(u.id), className: 'btn', style: { background: '#f44336', padding: '5px 10px', fontSize: '12px' } }, 'Бан')
+                                React.createElement('button', { 
+                                    onClick: () => navigate(`/profile/${u.steamId}`),  // ← здесь должен быть steamId
+                                    className: 'btn btn-primary', 
+                                    style: { padding: '5px 10px', fontSize: '12px', marginRight: '5px' } 
+                                }, 'Ред.'),
+                                !u.isBanned && React.createElement('button', { 
+                                    onClick: () => banUser(u.id), 
+                                    className: 'btn', 
+                                    style: { background: '#f44336', padding: '5px 10px', fontSize: '12px' } 
+                                }, 'Бан')
                             )
                         ))
                     )

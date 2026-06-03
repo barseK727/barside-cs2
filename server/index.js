@@ -217,12 +217,10 @@ app.get('/api/profile/:steamId', (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     const isBanned = db.bannedUsers && db.bannedUsers.includes(user.id);
     
-    // Находим турниры, в которых участвует пользователь
     const userTournaments = db.tournaments.filter(t => 
         t.registeredTeams && t.registeredTeams.some(team => team.captainId === user.id)
     ).map(t => ({ id: t.id, title: t.title, prizePool: t.prizePool, date: t.date }));
     
-    // Находим анкеты пользователя
     const userPosts = db.lfgPosts.filter(p => p.authorId === user.id);
     
     res.json({ 
@@ -232,7 +230,6 @@ app.get('/api/profile/:steamId', (req, res) => {
     });
 });
 
-// Обновить профиль (обычный пользователь - только свои данные)
 app.put('/api/profile/:steamId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -245,7 +242,6 @@ app.put('/api/profile/:steamId', (req, res) => {
     const isAdmin = currentUser?.isAdmin;
     const isOwnProfile = db.users[userIndex].id === payload.userId;
     
-    // Только свой профиль или админ может редактировать
     if (!isOwnProfile && !isAdmin) {
         return res.status(403).json({ error: 'Forbidden' });
     }
@@ -258,7 +254,6 @@ app.put('/api/profile/:steamId', (req, res) => {
     if (hasMic !== undefined) db.users[userIndex].hasMic = hasMic;
     if (bio !== undefined) db.users[userIndex].bio = bio;
     
-    // Только админ может менять баланс, isAdmin и бан
     if (isAdmin) {
         if (balance !== undefined) db.users[userIndex].balance = balance;
         if (makeAdmin !== undefined) db.users[userIndex].isAdmin = makeAdmin;
@@ -454,7 +449,6 @@ app.get('/api/admin/search', (req, res) => {
         (u.steamNickname && u.steamNickname.toLowerCase().includes(searchLower))
     );
     
-    // Для каждого найденного пользователя собираем его турниры и анкеты
     const result = foundUsers.map(u => {
         const userTournaments = db.tournaments.filter(t => 
             t.registeredTeams && t.registeredTeams.some(team => team.captainId === u.id)
@@ -473,7 +467,6 @@ app.get('/api/admin/search', (req, res) => {
 
 // ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
 
-// Отправить заявку в друзья
 app.post('/api/friends/request/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -492,7 +485,6 @@ app.post('/api/friends/request/:userId', (req, res) => {
     res.json({ success: true });
 });
 
-// Получить заявки в друзья
 app.get('/api/friends/requests', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -501,7 +493,6 @@ app.get('/api/friends/requests', (req, res) => {
     res.json({ data: db.friendRequests.filter(r => r.toId === payload.userId && r.status === 'pending') });
 });
 
-// Принять заявку
 app.post('/api/friends/request/:requestId/accept', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -519,7 +510,6 @@ app.post('/api/friends/request/:requestId/accept', (req, res) => {
     res.json({ success: true });
 });
 
-// Отклонить заявку
 app.post('/api/friends/request/:requestId/decline', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -535,7 +525,6 @@ app.post('/api/friends/request/:requestId/decline', (req, res) => {
     res.json({ success: true });
 });
 
-// Получить список друзей
 app.get('/api/friends', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -548,7 +537,6 @@ app.get('/api/friends', (req, res) => {
 
 // ============= СООБЩЕНИЯ =============
 
-// Получить все сообщения с пользователем
 app.get('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -561,7 +549,6 @@ app.get('/api/messages/:userId', (req, res) => {
             (m.fromId === req.params.userId && m.toId === payload.userId)
         ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
         
-        // Отмечаем сообщения как прочитанные
         db.messages.forEach(msg => {
             if (msg.toId === payload.userId && !msg.read) {
                 msg.read = true;
@@ -576,7 +563,6 @@ app.get('/api/messages/:userId', (req, res) => {
     }
 });
 
-// Отправить сообщение
 app.post('/api/messages/:userId', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -607,7 +593,6 @@ app.post('/api/messages/:userId', (req, res) => {
     }
 });
 
-// Получить количество непрочитанных сообщений
 app.get('/api/messages/unread/count', (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -622,18 +607,38 @@ app.get('/api/messages/unread/count', (req, res) => {
     }
 });
 
-// Health check
+// ============= НОВЫЙ МАРШРУТ ДЛЯ ЧАТА - ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ ПО ID =============
+app.get('/api/user/by-id/:userId', (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const db = loadDB();
+        const user = db.users.find(u => u.id === req.params.userId);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        const { ...safeUser } = user;
+        res.json({ user: safeUser });
+    } catch(e) {
+        console.error('Error in /api/user/by-id:', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============= HEALTH CHECK =============
 app.get('/healthz', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
-// Статика
+// ============= СТАТИКА =============
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// ============= ЗАПУСК СЕРВЕРА =============
 app.listen(PORT, () => {
     console.log(`\n🚀 BARSIDE CS2 Server running!`);
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🔑 Steam Auth: http://localhost:${PORT}/api/auth/steam`);
+    console.log(`📁 Data folder: ${path.join(__dirname, 'data')}`);
 });
