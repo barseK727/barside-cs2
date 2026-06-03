@@ -836,3 +836,29 @@ textarea.form-input {
         padding: 4px 8px;
     }
 }
+
+/* Дополнительные стили для главной страницы */
+.hero-section {
+    background: linear-gradient(135deg, rgba(76, 0, 255, 0.08), rgba(255, 61, 0, 0.03));
+}
+
+.section-header {
+    border-bottom: 1px solid rgba(76, 0, 255, 0.2);
+    padding-bottom: 10px;
+}
+
+/* Анимация для новых сообщений */
+@keyframes messageSlide {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message-new {
+    animation: messageSlide 0.3s ease-out;
+}
