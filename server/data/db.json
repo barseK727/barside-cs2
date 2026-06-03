@@ -1,0 +1,45 @@
+{
+  "users": [
+    {
+      "id": "user_1780480787467_24lv3c",
+      "steamId": "76561199505003990",
+      "steamNickname": "Bar_seK",
+      "steamAvatar": "https://avatars.steamstatic.com/f39f666b77addc24d2b21e331e951361901fd8ec_full.jpg",
+      "displayName": "Bar_seK",
+      "region": "RU",
+      "role": "RIFLER",
+      "hasMic": false,
+      "bio": "",
+      "balance": 1000,
+      "isAdmin": true,
+      "isBanned": false,
+      "createdAt": "2026-06-03T09:59:47.467Z",
+      "settings": {
+        "emailNotifications": true,
+        "theme": "dark"
+      }
+    }
+  ],
+  "lfgPosts": [],
+  "tournaments": [
+    {
+      "id": "tourn_1",
+      "title": "BARSIDE CUP #1",
+      "description": "Главный турнир сезона",
+      "prizePool": "50000₽",
+      "date": "2026-06-10T09:59:47.467Z",
+      "status": "UPCOMING",
+      "entryFee": 500,
+      "maxTeams": 16,
+      "registeredTeams": [],
+      "format": "5x5",
+      "rules": "1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass",
+      "schedule": "Групповой этап: первые выходные\nПлей-офф: следующие выходные",
+      "createdAt": "2026-06-03T09:59:47.467Z"
+    }
+  ],
+  "payments": [],
+  "friends": [],
+  "friendRequests": [],
+  "messages": []
+}

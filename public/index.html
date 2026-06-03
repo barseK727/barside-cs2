@@ -673,7 +673,7 @@
                             React.createElement('div', { className: 'form-group' },
                                 React.createElement('label', null, React.createElement('i', { className: 'fas fa-user-plus' }), ' Сколько игроков нужно? *'),
                                 React.createElement('div', { className: 'flex', style: { gap: '10px', flexWrap: 'wrap' } },
-                                    [2, 3, 4, 5].map(num => React.createElement('button', {
+                                    [2, 3, 4].map(num => React.createElement('button', {
                                         key: num, type: 'button',
                                         onClick: () => setFormData({ ...formData, playersNeeded: num }),
                                         className: formData.playersNeeded === num ? 'btn btn-primary' : 'btn btn-outline',
