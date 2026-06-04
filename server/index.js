@@ -18,7 +18,29 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С БД =============
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПРЕОБРАЗОВАНИЯ =============
+// Конвертирует snake_case из БД в camelCase для фронтенда
+function toCamelCase(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const newObj = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    newObj[camelKey] = value;
+  }
+  return newObj;
+}
+
+// Конвертирует camelCase из фронтенда в snake_case для БД
+function toSnakeCase(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const newObj = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+    newObj[snakeKey] = value;
+  }
+  return newObj;
+}
+
 async function query(text, params) {
     const start = Date.now();
     const res = await pool.query(text, params);
@@ -30,42 +52,45 @@ async function query(text, params) {
 // --- ПОЛЬЗОВАТЕЛИ ---
 async function findUserBySteamId(steamId) {
     const res = await query('SELECT * FROM users WHERE steam_id = $1', [steamId]);
-    return res.rows[0];
+    return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
 
 async function findUserById(userId) {
     const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
-    return res.rows[0];
+    return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
 
 async function createUser(userData) {
-    const { id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned } = userData;
+    const snakeData = toSnakeCase(userData);
+    const keys = Object.keys(snakeData);
+    const values = Object.values(snakeData);
+    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+    
     const res = await query(
-        `INSERT INTO users (id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-        [id, steam_id, steam_nickname, steam_avatar, display_name || steam_nickname, region, role, has_mic, bio, balance, is_admin, is_banned]
+        `INSERT INTO users (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+        values
     );
-    return res.rows[0];
+    return toCamelCase(res.rows[0]);
 }
 
 async function updateUser(steamId, updates) {
+    const snakeUpdates = toSnakeCase(updates);
     const fields = [];
     const values = [];
     let i = 1;
-    for (const [key, value] of Object.entries(updates)) {
-        const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-        fields.push(`${dbKey} = $${i}`);
+    for (const [key, value] of Object.entries(snakeUpdates)) {
+        fields.push(`${key} = $${i}`);
         values.push(value);
         i++;
     }
     values.push(steamId);
     const res = await query(`UPDATE users SET ${fields.join(', ')} WHERE steam_id = $${i} RETURNING *`, values);
-    return res.rows[0];
+    return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
 
 async function getAllUsers() {
     const res = await query('SELECT * FROM users ORDER BY created_at DESC');
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 async function searchUsers(query_term) {
@@ -75,7 +100,7 @@ async function searchUsers(query_term) {
          ORDER BY created_at DESC`,
         [`%${query_term}%`]
     );
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 // --- LFG ПОСТЫ ---
@@ -105,17 +130,22 @@ async function getLfgPosts(filters = {}) {
     sql += ' ORDER BY l.created_at DESC';
     
     const res = await query(sql, values);
-    return res.rows;
+    return res.rows.map(row => ({
+        ...toCamelCase(row),
+        author: row.author,
+        playersNeeded: row.players_needed || 5,
+        rolesNeeded: row.roles_needed || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+    }));
 }
 
 async function createLfgPost(post) {
-    const { id, author_id, title, region, rank, role, schedule, description, players_needed, roles_needed } = post;
+    const snakePost = toSnakeCase(post);
     const res = await query(
         `INSERT INTO lfg_posts (id, author_id, title, region, rank, role, schedule, description, players_needed, roles_needed)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [id, author_id, title, region, rank, role, schedule, description, players_needed, JSON.stringify(roles_needed)]
+        [snakePost.id, snakePost.author_id, snakePost.title, snakePost.region, snakePost.rank, snakePost.role, snakePost.schedule, snakePost.description, snakePost.players_needed, JSON.stringify(snakePost.roles_needed)]
     );
-    return res.rows[0];
+    return toCamelCase(res.rows[0]);
 }
 
 async function deleteLfgPost(postId, userId, isAdmin) {
@@ -131,23 +161,23 @@ async function deleteLfgPost(postId, userId, isAdmin) {
 
 async function getUserLfgPosts(userId) {
     const res = await query('SELECT * FROM lfg_posts WHERE author_id = $1 ORDER BY created_at DESC', [userId]);
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 // --- ТУРНИРЫ ---
 async function getTournaments() {
     const res = await query('SELECT * FROM tournaments ORDER BY created_at DESC');
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 async function createTournament(tournament) {
-    const { id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule } = tournament;
+    const snakeTour = toSnakeCase(tournament);
     const res = await query(
-        `INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-        [id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule]
+        `INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule, registered_teams)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+        [snakeTour.id, snakeTour.title, snakeTour.description, snakeTour.prize_pool, snakeTour.date, snakeTour.status, snakeTour.entry_fee, snakeTour.max_teams, snakeTour.format, snakeTour.rules, snakeTour.schedule, JSON.stringify(snakeTour.registered_teams || [])]
     );
-    return res.rows[0];
+    return toCamelCase(res.rows[0]);
 }
 
 async function deleteTournament(tournamentId) {
@@ -156,7 +186,6 @@ async function deleteTournament(tournamentId) {
 }
 
 async function registerForTournament(tournamentId, teamData) {
-    // Получаем текущий турнир
     const tourRes = await query('SELECT registered_teams FROM tournaments WHERE id = $1', [tournamentId]);
     if (tourRes.rows.length === 0) throw new Error('Tournament not found');
     
@@ -170,12 +199,13 @@ async function registerForTournament(tournamentId, teamData) {
 // --- ДРУЗЬЯ ---
 async function getFriends(userId) {
     const res = await query(
-        `SELECT u.* FROM users u
+        `SELECT u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, u.region, u.role, u.balance
+         FROM users u
          JOIN friends f ON f.friend_id = u.id
          WHERE f.user_id = $1`,
         [userId]
     );
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 async function sendFriendRequest(requestId, fromId, toId) {
@@ -193,7 +223,7 @@ async function getFriendRequests(toUserId) {
          WHERE fr.to_id = $1 AND fr.status = 'pending'`,
         [toUserId]
     );
-    return res.rows;
+    return res.rows.map(row => toCamelCase(row));
 }
 
 async function acceptFriendRequest(requestId, toUserId) {
@@ -232,16 +262,17 @@ async function getMessages(userId, otherUserId) {
          ORDER BY created_at ASC`,
         [userId, otherUserId]
     );
-    return res.rows;
+    return res.rows.map(toCamelCase);
 }
 
 async function createMessage(message) {
-    const { id, from_id, to_id, text } = message;
+    const snakeMsg = toSnakeCase(message);
     const res = await query(
-        `INSERT INTO messages (id, from_id, to_id, text) VALUES ($1, $2, $3, $4) RETURNING *`,
-        [id, from_id, to_id, text]
+        `INSERT INTO messages (id, from_id, to_id, text, read, created_at) 
+         VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *`,
+        [snakeMsg.id, snakeMsg.from_id, snakeMsg.to_id, snakeMsg.text, false]
     );
-    return res.rows[0];
+    return toCamelCase(res.rows[0]);
 }
 
 async function markMessagesAsRead(userId, fromUserId) {
@@ -286,7 +317,7 @@ async function updateUserBalance(userId, newBalance) {
     await query('UPDATE users SET balance = $1 WHERE id = $2', [newBalance, userId]);
 }
 
-// ============= ИНИЦИАЛИЗАЦИЯ ТАБЛИЦ В POSTGRESQL =============
+// ============= ИНИЦИАЛИЗАЦИЯ ТАБЛИЦ =============
 async function initPostgresDB() {
   const client = await pool.connect();
   try {
@@ -398,7 +429,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // ============= STEAM AUTH =============
 const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBDB2A3';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://barside-api.onrender.com';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://barside-web.onrender.com';
 
 app.get('/api/auth/steam', (req, res) => {
     const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(`https://barside-api.onrender.com/api/auth/steam/callback`)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
@@ -430,17 +461,17 @@ app.get('/api/auth/steam/callback', async (req, res) => {
             
             const newUser = {
                 id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-                steam_id: steamId,
-                steam_nickname: steamUser.personaname,
-                steam_avatar: steamUser.avatarfull,
-                display_name: steamUser.personaname,
+                steamId: steamId,
+                steamNickname: steamUser.personaname,
+                steamAvatar: steamUser.avatarfull,
+                displayName: steamUser.personaname,
                 region: 'RU',
                 role: 'RIFLER',
-                has_mic: false,
+                hasMic: false,
                 bio: '',
                 balance: 1000,
-                is_admin: isFirstUser,
-                is_banned: false
+                isAdmin: isFirstUser,
+                isBanned: false
             };
             
             user = await createUser(newUser);
@@ -451,33 +482,34 @@ app.get('/api/auth/steam/callback', async (req, res) => {
                     id: `tourn_${Date.now()}`,
                     title: 'BARSIDE CUP #1',
                     description: 'Главный турнир сезона',
-                    prize_pool: '50000₽',
+                    prizePool: '50000₽',
                     date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
                     status: 'UPCOMING',
-                    entry_fee: 500,
-                    max_teams: 16,
+                    entryFee: 500,
+                    maxTeams: 16,
                     format: '5x5',
                     rules: '1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass',
-                    schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные'
+                    schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные',
+                    registeredTeams: []
                 };
                 await createTournament(defaultTournament);
             }
         } else {
             await updateUser(steamId, {
-                steam_nickname: steamUser.personaname,
-                steam_avatar: steamUser.avatarfull
+                steamNickname: steamUser.personaname,
+                steamAvatar: steamUser.avatarfull
             });
             user = await findUserBySteamId(steamId);
         }
         
         const banned = await isUserBanned(user.id);
         if (banned) {
-            const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id, banned: true })).toString('base64');
+            const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, banned: true })).toString('base64');
             res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
             return res.redirect(`${FRONTEND_URL}/?error=banned`);
         }
         
-        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id })).toString('base64');
+        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
         res.redirect(`${FRONTEND_URL}/`);
         
@@ -524,7 +556,7 @@ app.get('/api/profile/:steamId', async (req, res) => {
         
         const tournaments = await getTournaments();
         const userTournaments = tournaments.filter(t => {
-            const teams = t.registered_teams || [];
+            const teams = t.registeredTeams || [];
             return teams.some(team => team.captainId === user.id);
         });
         
@@ -552,7 +584,7 @@ app.put('/api/profile/:steamId', async (req, res) => {
         
         if (!targetUser) return res.status(404).json({ error: 'User not found' });
         
-        const isAdmin = currentUser?.is_admin;
+        const isAdmin = currentUser?.isAdmin;
         const isOwnProfile = targetUser.id === payload.userId;
         
         if (!isOwnProfile && !isAdmin) {
@@ -562,15 +594,15 @@ app.put('/api/profile/:steamId', async (req, res) => {
         const { displayName, region, role, hasMic, bio, balance, isAdmin: makeAdmin, isBanned } = req.body;
         const updates = {};
         
-        if (displayName !== undefined) updates.display_name = displayName;
+        if (displayName !== undefined) updates.displayName = displayName;
         if (region !== undefined) updates.region = region;
         if (role !== undefined) updates.role = role;
-        if (hasMic !== undefined) updates.has_mic = hasMic;
+        if (hasMic !== undefined) updates.hasMic = hasMic;
         if (bio !== undefined) updates.bio = bio;
         
         if (isAdmin) {
             if (balance !== undefined) updates.balance = balance;
-            if (makeAdmin !== undefined) updates.is_admin = makeAdmin;
+            if (makeAdmin !== undefined) updates.isAdmin = makeAdmin;
             if (isBanned !== undefined) {
                 if (isBanned) {
                     await banUser(targetUser.id, 'Banned by admin');
@@ -645,12 +677,7 @@ app.get('/api/lfg', async (req, res) => {
     try {
         const { region, role } = req.query;
         const posts = await getLfgPosts({ region, role });
-        const formattedPosts = posts.map(p => ({
-            ...p,
-            playersNeeded: p.players_needed || 5,
-            rolesNeeded: p.roles_needed || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
-        }));
-        res.json({ data: formattedPosts });
+        res.json({ data: posts });
     } catch (err) {
         console.error('Error in /api/lfg:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -683,29 +710,27 @@ app.post('/api/lfg', async (req, res) => {
         
         const newPost = {
             id: `lfg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-            author_id: user.id,
+            authorId: user.id,
             title,
             region,
             rank: 'GOLD_1',
             role: user.role || 'RIFLER',
             schedule,
             description: description || '',
-            players_needed: playersCount,
-            roles_needed: rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+            playersNeeded: playersCount,
+            rolesNeeded: rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
         };
         
         const created = await createLfgPost(newPost);
         
         const result = {
             ...created,
-            playersNeeded: created.players_needed,
-            rolesNeeded: created.roles_needed,
             author: {
                 id: user.id,
-                steamId: user.steam_id,
-                steamNickname: user.steam_nickname,
-                steamAvatar: user.steam_avatar,
-                displayName: user.display_name,
+                steamId: user.steamId,
+                steamNickname: user.steamNickname,
+                steamAvatar: user.steamAvatar,
+                displayName: user.displayName,
                 region: user.region,
                 role: user.role
             }
@@ -727,7 +752,7 @@ app.delete('/api/lfg/:id', async (req, res) => {
         const user = await findUserById(payload.userId);
         if (!user) return res.status(401).json({ error: 'Unauthorized' });
         
-        const deleted = await deleteLfgPost(req.params.id, user.id, user.is_admin);
+        const deleted = await deleteLfgPost(req.params.id, user.id, user.isAdmin);
         if (!deleted) {
             return res.status(404).json({ error: 'Post not found or forbidden' });
         }
@@ -755,7 +780,7 @@ app.delete('/api/tournaments/:id', async (req, res) => {
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
-        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         
         const deleted = await deleteTournament(req.params.id);
         if (!deleted) return res.status(404).json({ error: 'Tournament not found' });
@@ -778,12 +803,12 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
         const tournament = tournaments.find(t => t.id === req.params.id);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
         
-        if (tournament.entry_fee > 0 && user.balance < tournament.entry_fee) {
+        if (tournament.entryFee > 0 && user.balance < tournament.entryFee) {
             return res.status(400).json({ error: 'Insufficient balance' });
         }
         
-        if (tournament.entry_fee > 0) {
-            const newBalance = user.balance - tournament.entry_fee;
+        if (tournament.entryFee > 0) {
+            const newBalance = user.balance - tournament.entryFee;
             await updateUserBalance(user.id, newBalance);
         }
         
@@ -791,7 +816,7 @@ app.post('/api/tournaments/:id/register', async (req, res) => {
             id: Date.now().toString(),
             teamName: req.body.teamName,
             captainId: user.id,
-            captainName: user.display_name || user.steam_nickname,
+            captainName: user.displayName || user.steamNickname,
             captainTelegram: req.body.captainTelegram,
             captainPhone: req.body.captainPhone,
             players: req.body.players,
@@ -814,7 +839,7 @@ app.get('/api/admin/users', async (req, res) => {
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
-        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         
         const users = await getAllUsers();
         const usersWithBan = await Promise.all(users.map(async u => ({
@@ -834,13 +859,13 @@ app.post('/api/admin/tournaments', async (req, res) => {
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
-        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         
         const newTournament = {
             id: `tourn_${Date.now()}`,
             ...req.body,
             status: 'UPCOMING',
-            registered_teams: []
+            registeredTeams: []
         };
         
         await createTournament(newTournament);
@@ -857,7 +882,7 @@ app.get('/api/admin/search', async (req, res) => {
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
-        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         
         const { query: searchTerm } = req.query;
         if (!searchTerm) return res.json({ data: [] });
@@ -866,7 +891,7 @@ app.get('/api/admin/search', async (req, res) => {
         const tournaments = await getTournaments();
         const result = await Promise.all(users.map(async u => {
             const userTournaments = tournaments.filter(t => {
-                const teams = t.registered_teams || [];
+                const teams = t.registeredTeams || [];
                 return teams.some(team => team.captainId === u.id);
             });
             const userPosts = await getUserLfgPosts(u.id);
@@ -991,8 +1016,8 @@ app.post('/api/messages/:userId', async (req, res) => {
         
         const newMessage = {
             id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-            from_id: payload.userId,
-            to_id: req.params.userId,
+            fromId: payload.userId,
+            toId: req.params.userId,
             text: text.trim()
         };
         
