@@ -233,6 +233,8 @@ async function initPostgresDB() {
   const client = await pool.connect();
   try {
     await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, steam_id TEXT UNIQUE NOT NULL, steam_nickname TEXT NOT NULL, steam_avatar TEXT, display_name TEXT, region TEXT DEFAULT 'RU', role TEXT DEFAULT 'RIFLER', has_mic BOOLEAN DEFAULT FALSE, bio TEXT, balance INTEGER DEFAULT 1000, is_admin BOOLEAN DEFAULT FALSE, is_banned BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW(), settings JSONB)`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'online'`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT NOW()`);
     await client.query(`CREATE TABLE IF NOT EXISTS lfg_posts (id TEXT PRIMARY KEY, author_id TEXT REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, region TEXT NOT NULL, rank TEXT, role TEXT, schedule TEXT NOT NULL, description TEXT, players_needed INTEGER DEFAULT 1, roles_needed JSONB, created_at TIMESTAMP DEFAULT NOW())`);
     await client.query(`CREATE TABLE IF NOT EXISTS friends (user_id TEXT REFERENCES users(id) ON DELETE CASCADE, friend_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, friend_id))`);
     await client.query(`CREATE TABLE IF NOT EXISTS friend_requests (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'pending')`);
@@ -600,6 +602,134 @@ app.get('/api/friends', checkBanned, async (req, res) => {
         const friends = await getFriends(payload.userId);
         res.json({ data: friends });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ============= ДОПОЛНИТЕЛЬНЫЕ МАРШРУТЫ ДЛЯ ДРУЗЕЙ И СООБЩЕНИЙ =============
+
+// Получить друзей пользователя по steamId
+app.get('/api/user/:steamId/friends', async (req, res) => {
+    try {
+        const user = await findUserBySteamId(req.params.steamId);
+        if (!user) return res.json({ data: [] });
+        const friends = await getFriends(user.id);
+        res.json({ data: friends });
+    } catch (err) { 
+        console.error('Error in /api/user/:steamId/friends:', err);
+        res.json({ data: [] }); 
+    }
+});
+
+// Получить отправленные заявки
+app.get('/api/friends/requests/sent', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const result = await query(`
+            SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar 
+            FROM friend_requests fr 
+            JOIN users u ON fr.to_id = u.id 
+            WHERE fr.from_id = $1 AND fr.status = $2
+        `, [payload.userId, 'pending']);
+        res.json({ data: result.rows });
+    } catch (err) { 
+        console.error('Error in /api/friends/requests/sent:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Отменить заявку
+app.delete('/api/friends/request/:requestId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await query('DELETE FROM friend_requests WHERE id = $1 AND from_id = $2 AND status = $3', 
+            [req.params.requestId, payload.userId, 'pending']);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in DELETE /api/friends/request/:requestId:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Удалить из друзей
+app.delete('/api/friends/:friendId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await query('DELETE FROM friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)', 
+            [payload.userId, req.params.friendId]);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in DELETE /api/friends/:friendId:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Удалить сообщение
+app.delete('/api/messages/:messageId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await query('DELETE FROM messages WHERE id = $1 AND from_id = $2', 
+            [req.params.messageId, payload.userId]);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in DELETE /api/messages/:messageId:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Редактировать сообщение
+app.put('/api/messages/:messageId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const { text } = req.body;
+        await query('UPDATE messages SET text = $1 WHERE id = $2 AND from_id = $3', 
+            [text, req.params.messageId, payload.userId]);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in PUT /api/messages/:messageId:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Очистить чат
+app.delete('/api/messages/chat/:userId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await query('DELETE FROM messages WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1)', 
+            [payload.userId, req.params.userId]);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in DELETE /api/messages/chat/:userId:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
+});
+
+// Обновить статус пользователя
+app.post('/api/settings/status', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const { status } = req.body;
+        // Добавляем колонки если их нет
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'online'`);
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT NOW()`);
+        await query('UPDATE users SET status = $1, last_seen = NOW() WHERE id = $2', [status, payload.userId]);
+        res.json({ success: true });
+    } catch (err) { 
+        console.error('Error in POST /api/settings/status:', err);
+        res.status(500).json({ error: 'Server error' }); 
+    }
 });
 
 // ============= СООБЩЕНИЯ =============
