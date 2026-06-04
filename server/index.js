@@ -2,34 +2,301 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const cookieParser = require('cookie-parser');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ============= ПОДКЛЮЧЕНИЕ К POSTGRESQL =============
 const { Pool } = require('pg');
 
-// Настройка подключения к PostgreSQL
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  ssl: { rejectUnauthorized: false }  // важно для Render!
+  ssl: { rejectUnauthorized: false }
 });
 
-// Инициализация таблиц в PostgreSQL
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С БД =============
+async function query(text, params) {
+    const start = Date.now();
+    const res = await pool.query(text, params);
+    const duration = Date.now() - start;
+    console.log('executed query', { text: text.substring(0, 100), duration, rows: res.rowCount });
+    return res;
+}
+
+// --- ПОЛЬЗОВАТЕЛИ ---
+async function findUserBySteamId(steamId) {
+    const res = await query('SELECT * FROM users WHERE steam_id = $1', [steamId]);
+    return res.rows[0];
+}
+
+async function findUserById(userId) {
+    const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
+    return res.rows[0];
+}
+
+async function createUser(userData) {
+    const { id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned } = userData;
+    const res = await query(
+        `INSERT INTO users (id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+        [id, steam_id, steam_nickname, steam_avatar, display_name || steam_nickname, region, role, has_mic, bio, balance, is_admin, is_banned]
+    );
+    return res.rows[0];
+}
+
+async function updateUser(steamId, updates) {
+    const fields = [];
+    const values = [];
+    let i = 1;
+    for (const [key, value] of Object.entries(updates)) {
+        const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        fields.push(`${dbKey} = $${i}`);
+        values.push(value);
+        i++;
+    }
+    values.push(steamId);
+    const res = await query(`UPDATE users SET ${fields.join(', ')} WHERE steam_id = $${i} RETURNING *`, values);
+    return res.rows[0];
+}
+
+async function getAllUsers() {
+    const res = await query('SELECT * FROM users ORDER BY created_at DESC');
+    return res.rows;
+}
+
+async function searchUsers(query_term) {
+    const res = await query(
+        `SELECT * FROM users 
+         WHERE display_name ILIKE $1 OR steam_nickname ILIKE $1 
+         ORDER BY created_at DESC`,
+        [`%${query_term}%`]
+    );
+    return res.rows;
+}
+
+// --- LFG ПОСТЫ ---
+async function getLfgPosts(filters = {}) {
+    let sql = `SELECT l.*, 
+                      json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname, 'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 'region', u.region, 'role', u.role) as author
+               FROM lfg_posts l
+               JOIN users u ON l.author_id = u.id`;
+    const conditions = [];
+    const values = [];
+    let i = 1;
+    
+    if (filters.region && filters.region !== 'all') {
+        conditions.push(`l.region = $${i}`);
+        values.push(filters.region);
+        i++;
+    }
+    if (filters.role && filters.role !== 'all') {
+        conditions.push(`l.role = $${i}`);
+        values.push(filters.role);
+        i++;
+    }
+    
+    if (conditions.length > 0) {
+        sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY l.created_at DESC';
+    
+    const res = await query(sql, values);
+    return res.rows;
+}
+
+async function createLfgPost(post) {
+    const { id, author_id, title, region, rank, role, schedule, description, players_needed, roles_needed } = post;
+    const res = await query(
+        `INSERT INTO lfg_posts (id, author_id, title, region, rank, role, schedule, description, players_needed, roles_needed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [id, author_id, title, region, rank, role, schedule, description, players_needed, JSON.stringify(roles_needed)]
+    );
+    return res.rows[0];
+}
+
+async function deleteLfgPost(postId, userId, isAdmin) {
+    let sql = 'DELETE FROM lfg_posts WHERE id = $1';
+    const values = [postId];
+    if (!isAdmin) {
+        sql += ' AND author_id = $2';
+        values.push(userId);
+    }
+    const res = await query(sql, values);
+    return res.rowCount > 0;
+}
+
+async function getUserLfgPosts(userId) {
+    const res = await query('SELECT * FROM lfg_posts WHERE author_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows;
+}
+
+// --- ТУРНИРЫ ---
+async function getTournaments() {
+    const res = await query('SELECT * FROM tournaments ORDER BY created_at DESC');
+    return res.rows;
+}
+
+async function createTournament(tournament) {
+    const { id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule } = tournament;
+    const res = await query(
+        `INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        [id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule]
+    );
+    return res.rows[0];
+}
+
+async function deleteTournament(tournamentId) {
+    const res = await query('DELETE FROM tournaments WHERE id = $1', [tournamentId]);
+    return res.rowCount > 0;
+}
+
+async function registerForTournament(tournamentId, teamData) {
+    // Получаем текущий турнир
+    const tourRes = await query('SELECT registered_teams FROM tournaments WHERE id = $1', [tournamentId]);
+    if (tourRes.rows.length === 0) throw new Error('Tournament not found');
+    
+    let registeredTeams = tourRes.rows[0].registered_teams || [];
+    registeredTeams.push(teamData);
+    
+    await query('UPDATE tournaments SET registered_teams = $1 WHERE id = $2', [JSON.stringify(registeredTeams), tournamentId]);
+    return true;
+}
+
+// --- ДРУЗЬЯ ---
+async function getFriends(userId) {
+    const res = await query(
+        `SELECT u.* FROM users u
+         JOIN friends f ON f.friend_id = u.id
+         WHERE f.user_id = $1`,
+        [userId]
+    );
+    return res.rows;
+}
+
+async function sendFriendRequest(requestId, fromId, toId) {
+    await query(
+        `INSERT INTO friend_requests (id, from_id, to_id, status) VALUES ($1, $2, $3, 'pending')`,
+        [requestId, fromId, toId]
+    );
+}
+
+async function getFriendRequests(toUserId) {
+    const res = await query(
+        `SELECT fr.*, u.steam_nickname as from_name, u.steam_avatar as from_avatar 
+         FROM friend_requests fr
+         JOIN users u ON fr.from_id = u.id
+         WHERE fr.to_id = $1 AND fr.status = 'pending'`,
+        [toUserId]
+    );
+    return res.rows;
+}
+
+async function acceptFriendRequest(requestId, toUserId) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const reqRes = await client.query('SELECT from_id, to_id FROM friend_requests WHERE id = $1 AND to_id = $2 AND status = $3', [requestId, toUserId, 'pending']);
+        if (reqRes.rows.length === 0) throw new Error('Request not found');
+        const { from_id, to_id } = reqRes.rows[0];
+        
+        await client.query('INSERT INTO friends (user_id, friend_id) VALUES ($1, $2), ($2, $1)', [from_id, to_id]);
+        await client.query('UPDATE friend_requests SET status = $1 WHERE id = $2', ['accepted', requestId]);
+        await client.query('COMMIT');
+        return true;
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
+async function declineFriendRequest(requestId, toUserId) {
+    const res = await query(
+        `UPDATE friend_requests SET status = 'declined' WHERE id = $1 AND to_id = $2 AND status = 'pending'`,
+        [requestId, toUserId]
+    );
+    return res.rowCount > 0;
+}
+
+// --- СООБЩЕНИЯ ---
+async function getMessages(userId, otherUserId) {
+    const res = await query(
+        `SELECT * FROM messages 
+         WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1)
+         ORDER BY created_at ASC`,
+        [userId, otherUserId]
+    );
+    return res.rows;
+}
+
+async function createMessage(message) {
+    const { id, from_id, to_id, text } = message;
+    const res = await query(
+        `INSERT INTO messages (id, from_id, to_id, text) VALUES ($1, $2, $3, $4) RETURNING *`,
+        [id, from_id, to_id, text]
+    );
+    return res.rows[0];
+}
+
+async function markMessagesAsRead(userId, fromUserId) {
+    await query(
+        `UPDATE messages SET read = true WHERE to_id = $1 AND from_id = $2 AND read = false`,
+        [userId, fromUserId]
+    );
+}
+
+async function getUnreadCount(userId) {
+    const res = await query(`SELECT COUNT(*) FROM messages WHERE to_id = $1 AND read = false`, [userId]);
+    return parseInt(res.rows[0].count);
+}
+
+// --- БАНЫ ---
+async function banUser(userId, reason) {
+    await query(
+        `INSERT INTO banned_users (user_id, reason, banned_until) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE SET reason = $2, banned_until = $3`,
+        [userId, reason, null]
+    );
+    await query('UPDATE users SET is_banned = true WHERE id = $1', [userId]);
+}
+
+async function unbanUser(userId) {
+    await query('DELETE FROM banned_users WHERE user_id = $1', [userId]);
+    await query('UPDATE users SET is_banned = false WHERE id = $1', [userId]);
+}
+
+async function isUserBanned(userId) {
+    const res = await query('SELECT * FROM banned_users WHERE user_id = $1', [userId]);
+    return res.rows.length > 0;
+}
+
+// --- БАЛАНС ---
+async function getUserBalance(userId) {
+    const res = await query('SELECT balance FROM users WHERE id = $1', [userId]);
+    return res.rows[0]?.balance || 0;
+}
+
+async function updateUserBalance(userId, newBalance) {
+    await query('UPDATE users SET balance = $1 WHERE id = $2', [newBalance, userId]);
+}
+
+// ============= ИНИЦИАЛИЗАЦИЯ ТАБЛИЦ В POSTGRESQL =============
 async function initPostgresDB() {
   const client = await pool.connect();
   try {
-    // Таблица пользователей
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         steam_id TEXT UNIQUE NOT NULL,
         steam_nickname TEXT NOT NULL,
         steam_avatar TEXT,
-        display_name TEXT UNIQUE,
+        display_name TEXT,
         region TEXT DEFAULT 'RU',
         role TEXT DEFAULT 'RIFLER',
         has_mic BOOLEAN DEFAULT FALSE,
@@ -42,7 +309,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица LFG постов
     await client.query(`
       CREATE TABLE IF NOT EXISTS lfg_posts (
         id TEXT PRIMARY KEY,
@@ -59,7 +325,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица друзей
     await client.query(`
       CREATE TABLE IF NOT EXISTS friends (
         user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
@@ -69,7 +334,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица заявок в друзья
     await client.query(`
       CREATE TABLE IF NOT EXISTS friend_requests (
         id TEXT PRIMARY KEY,
@@ -80,7 +344,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица сообщений
     await client.query(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -92,7 +355,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица турниров
     await client.query(`
       CREATE TABLE IF NOT EXISTS tournaments (
         id TEXT PRIMARY KEY,
@@ -111,7 +373,6 @@ async function initPostgresDB() {
       )
     `);
 
-    // Таблица забаненных пользователей
     await client.query(`
       CREATE TABLE IF NOT EXISTS banned_users (
         user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
@@ -130,75 +391,24 @@ async function initPostgresDB() {
   }
 }
 
-// Вызов инициализации БД (не блокирует запуск сервера)
-initPostgresDB().catch(console.error);
-
-// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С БД (JSON файл - резервный вариант) =============
-function loadDB() {
-    const dataPath = path.join(__dirname, 'data', 'db.json');
-    if (fs.existsSync(dataPath)) {
-        try {
-            const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-            if (!data.friends) data.friends = [];
-            if (!data.friendRequests) data.friendRequests = [];
-            if (!data.messages) data.messages = [];
-            if (!data.payments) data.payments = [];
-            if (!data.bannedUsers) data.bannedUsers = [];
-            return data;
-        } catch(e) {
-            console.error('Error parsing db.json:', e);
-        }
-    }
-    return { 
-        users: [], 
-        lfgPosts: [], 
-        tournaments: [], 
-        payments: [], 
-        friends: [], 
-        friendRequests: [], 
-        messages: [],
-        bannedUsers: []
-    };
-}
-
-function saveDB(db) {
-    const dataPath = path.join(__dirname, 'data', 'db.json');
-    if (!fs.existsSync(path.join(__dirname, 'data'))) {
-        fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-    }
-    fs.writeFileSync(dataPath, JSON.stringify(db, null, 2));
-}
-
-// Middleware
+// ============= MIDDLEWARE =============
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
-
-// Парсер cookies
-app.use((req, res, next) => {
-    req.cookies = {};
-    const cookieHeader = req.headers.cookie;
-    if (cookieHeader) {
-        cookieHeader.split(';').forEach(cookie => {
-            const [name, value] = cookie.trim().split('=');
-            req.cookies[name] = decodeURIComponent(value);
-        });
-    }
-    next();
-});
 
 // ============= STEAM AUTH =============
 const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBDB2A3';
-const STEAM_RETURN_URL = `https://barside-api.onrender.com/api/auth/steam/callback`;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://barside-api.onrender.com';
 
 app.get('/api/auth/steam', (req, res) => {
-    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(STEAM_RETURN_URL)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
+    const openIdUrl = `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(`https://barside-api.onrender.com/api/auth/steam/callback`)}&openid.realm=https://barside-api.onrender.com&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`;
     res.redirect(openIdUrl);
 });
 
 app.get('/api/auth/steam/callback', async (req, res) => {
     const claimedId = req.query['openid.claimed_id'];
     if (!claimedId) {
-        return res.redirect('https://barside-api.onrender.com/?error=auth_failed');
+        return res.redirect(`${FRONTEND_URL}/?error=auth_failed`);
     }
     
     const steamId = claimedId.split('/').pop();
@@ -209,68 +419,71 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         const steamUser = steamResponse.data.response?.players?.[0];
         
         if (!steamUser) {
-            return res.redirect('https://barside-api.onrender.com/?error=steam_api_failed');
+            return res.redirect(`${FRONTEND_URL}/?error=steam_api_failed`);
         }
         
-        let db = loadDB();
+        let user = await findUserBySteamId(steamId);
         
-        let user = db.users.find(u => u.steamId === steamId);
         if (!user) {
-            user = {
+            const userCountRes = await query('SELECT COUNT(*) FROM users');
+            const isFirstUser = parseInt(userCountRes.rows[0].count) === 0;
+            
+            const newUser = {
                 id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-                steamId: steamId,
-                steamNickname: steamUser.personaname,
-                steamAvatar: steamUser.avatarfull,
-                displayName: steamUser.personaname,
+                steam_id: steamId,
+                steam_nickname: steamUser.personaname,
+                steam_avatar: steamUser.avatarfull,
+                display_name: steamUser.personaname,
                 region: 'RU',
                 role: 'RIFLER',
-                hasMic: false,
+                has_mic: false,
                 bio: '',
                 balance: 1000,
-                isAdmin: db.users.length === 0,
-                isBanned: false,
-                createdAt: new Date().toISOString(),
-                settings: { emailNotifications: true, theme: 'dark' }
+                is_admin: isFirstUser,
+                is_banned: false
             };
-            db.users.push(user);
             
-            if (db.tournaments.length === 0) {
-                db.tournaments.push({
-                    id: 'tourn_1',
+            user = await createUser(newUser);
+            
+            const tournamentCountRes = await query('SELECT COUNT(*) FROM tournaments');
+            if (parseInt(tournamentCountRes.rows[0].count) === 0) {
+                const defaultTournament = {
+                    id: `tourn_${Date.now()}`,
                     title: 'BARSIDE CUP #1',
                     description: 'Главный турнир сезона',
-                    prizePool: '50000₽',
+                    prize_pool: '50000₽',
                     date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
                     status: 'UPCOMING',
-                    entryFee: 500,
-                    maxTeams: 16,
-                    registeredTeams: [],
+                    entry_fee: 500,
+                    max_teams: 16,
                     format: '5x5',
                     rules: '1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass',
-                    schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные',
-                    createdAt: new Date().toISOString()
-                });
+                    schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные'
+                };
+                await createTournament(defaultTournament);
             }
-            saveDB(db);
         } else {
-            user.steamNickname = steamUser.personaname;
-            user.steamAvatar = steamUser.avatarfull;
-            saveDB(db);
+            await updateUser(steamId, {
+                steam_nickname: steamUser.personaname,
+                steam_avatar: steamUser.avatarfull
+            });
+            user = await findUserBySteamId(steamId);
         }
         
-        if (db.bannedUsers && db.bannedUsers.includes(user.id)) {
-            const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, banned: true })).toString('base64');
+        const banned = await isUserBanned(user.id);
+        if (banned) {
+            const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id, banned: true })).toString('base64');
             res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            return res.redirect('https://barside-api.onrender.com/?error=banned');
+            return res.redirect(`${FRONTEND_URL}/?error=banned`);
         }
         
-        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
+        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-        res.redirect('https://barside-api.onrender.com/');
+        res.redirect(`${FRONTEND_URL}/`);
         
     } catch (error) {
         console.error('❌ Steam auth error:', error.message);
-        res.redirect('https://barside-api.onrender.com/?error=auth_failed');
+        res.redirect(`${FRONTEND_URL}/?error=auth_failed`);
     }
 });
 
@@ -279,23 +492,544 @@ app.post('/api/auth/logout', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.json({ data: null });
     
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const db = loadDB();
-        const user = db.users.find(u => u.id === payload.userId);
+        const user = await findUserById(payload.userId);
         if (user) {
-            if (db.bannedUsers && db.bannedUsers.includes(user.id)) {
-                return res.json({ data: { ...user, isBanned: true } });
-            }
-            return res.json({ data: user });
+            const banned = await isUserBanned(user.id);
+            return res.json({ data: { ...user, isBanned: banned } });
         }
-    } catch(e) {}
+    } catch(e) {
+        console.error('Auth me error:', e);
+    }
     
     res.json({ data: null });
+});
+
+// ============= ОНЛАЙН СЧЁТЧИК =============
+const onlineSessions = new Set();
+app.get('/api/online', (req, res) => { res.json({ count: onlineSessions.size }); });
+app.post('/api/heartbeat', (req, res) => { const { sessionId } = req.body; if (sessionId) onlineSessions.add(sessionId); res.json({ success: true }); });
+
+// ============= ПРОФИЛЬ =============
+app.get('/api/profile/:steamId', async (req, res) => {
+    try {
+        const user = await findUserBySteamId(req.params.steamId);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        const isBanned = await isUserBanned(user.id);
+        
+        const tournaments = await getTournaments();
+        const userTournaments = tournaments.filter(t => {
+            const teams = t.registered_teams || [];
+            return teams.some(team => team.captainId === user.id);
+        });
+        
+        const userPosts = await getUserLfgPosts(user.id);
+        
+        res.json({ 
+            user: { ...user, isBanned }, 
+            tournaments: userTournaments,
+            lfgPosts: userPosts
+        });
+    } catch (err) {
+        console.error('Profile error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/profile/:steamId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const currentUser = await findUserById(payload.userId);
+        const targetUser = await findUserBySteamId(req.params.steamId);
+        
+        if (!targetUser) return res.status(404).json({ error: 'User not found' });
+        
+        const isAdmin = currentUser?.is_admin;
+        const isOwnProfile = targetUser.id === payload.userId;
+        
+        if (!isOwnProfile && !isAdmin) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        
+        const { displayName, region, role, hasMic, bio, balance, isAdmin: makeAdmin, isBanned } = req.body;
+        const updates = {};
+        
+        if (displayName !== undefined) updates.display_name = displayName;
+        if (region !== undefined) updates.region = region;
+        if (role !== undefined) updates.role = role;
+        if (hasMic !== undefined) updates.has_mic = hasMic;
+        if (bio !== undefined) updates.bio = bio;
+        
+        if (isAdmin) {
+            if (balance !== undefined) updates.balance = balance;
+            if (makeAdmin !== undefined) updates.is_admin = makeAdmin;
+            if (isBanned !== undefined) {
+                if (isBanned) {
+                    await banUser(targetUser.id, 'Banned by admin');
+                } else {
+                    await unbanUser(targetUser.id);
+                }
+            }
+        }
+        
+        if (Object.keys(updates).length > 0) {
+            await updateUser(req.params.steamId, updates);
+        }
+        
+        const updatedUser = await findUserBySteamId(req.params.steamId);
+        res.json({ user: updatedUser });
+    } catch (err) {
+        console.error('Profile update error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Баланс
+app.get('/api/balance', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const balance = await getUserBalance(payload.userId);
+        res.json({ balance });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/balance/topup', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const { amount } = req.body;
+        const currentBalance = await getUserBalance(payload.userId);
+        if (!amount || amount < 100) return res.status(400).json({ error: 'Minimum topup is 100₽' });
+        const newBalance = currentBalance + amount;
+        await updateUserBalance(payload.userId, newBalance);
+        res.json({ success: true, balance: newBalance });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Статистика
+app.get('/api/stats', async (req, res) => {
+    try {
+        const usersRes = await query('SELECT COUNT(*) FROM users');
+        const lfgRes = await query('SELECT COUNT(*) FROM lfg_posts');
+        const tournamentsRes = await query('SELECT COUNT(*) FROM tournaments');
+        res.json({ 
+            totalUsers: parseInt(usersRes.rows[0].count), 
+            totalLfgPosts: parseInt(lfgRes.rows[0].count), 
+            totalTournaments: parseInt(tournamentsRes.rows[0].count), 
+            online: onlineSessions.size 
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============= LFG МАРШРУТЫ =============
+app.get('/api/lfg', async (req, res) => {
+    try {
+        const { region, role } = req.query;
+        const posts = await getLfgPosts({ region, role });
+        const formattedPosts = posts.map(p => ({
+            ...p,
+            playersNeeded: p.players_needed || 5,
+            rolesNeeded: p.roles_needed || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+        }));
+        res.json({ data: formattedPosts });
+    } catch (err) {
+        console.error('Error in /api/lfg:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/lfg', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const { title, region, schedule, description, playersNeeded, rolesNeeded } = req.body;
+        if (!title || !region || !schedule) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+        
+        const playersCount = playersNeeded || 5;
+        if (playersCount < 2 || playersCount > 4) {
+            return res.status(400).json({ error: 'Players needed must be between 2 and 4' });
+        }
+        
+        const userPostsRes = await query('SELECT COUNT(*) FROM lfg_posts WHERE author_id = $1', [user.id]);
+        if (parseInt(userPostsRes.rows[0].count) >= 2) {
+            return res.status(400).json({ error: 'Maximum 2 active posts per user' });
+        }
+        
+        const newPost = {
+            id: `lfg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            author_id: user.id,
+            title,
+            region,
+            rank: 'GOLD_1',
+            role: user.role || 'RIFLER',
+            schedule,
+            description: description || '',
+            players_needed: playersCount,
+            roles_needed: rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+        };
+        
+        const created = await createLfgPost(newPost);
+        
+        const result = {
+            ...created,
+            playersNeeded: created.players_needed,
+            rolesNeeded: created.roles_needed,
+            author: {
+                id: user.id,
+                steamId: user.steam_id,
+                steamNickname: user.steam_nickname,
+                steamAvatar: user.steam_avatar,
+                displayName: user.display_name,
+                region: user.region,
+                role: user.role
+            }
+        };
+        
+        res.status(201).json({ data: result });
+    } catch (err) {
+        console.error('Error creating LFG post:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.delete('/api/lfg/:id', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+        
+        const deleted = await deleteLfgPost(req.params.id, user.id, user.is_admin);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Post not found or forbidden' });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error deleting LFG post:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ============= ТУРНИРЫ =============
+app.get('/api/tournaments', async (req, res) => {
+    try {
+        const tournaments = await getTournaments();
+        res.json({ data: tournaments });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.delete('/api/tournaments/:id', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        
+        const deleted = await deleteTournament(req.params.id);
+        if (!deleted) return res.status(404).json({ error: 'Tournament not found' });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/tournaments/:id/register', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+        
+        const tournaments = await getTournaments();
+        const tournament = tournaments.find(t => t.id === req.params.id);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+        
+        if (tournament.entry_fee > 0 && user.balance < tournament.entry_fee) {
+            return res.status(400).json({ error: 'Insufficient balance' });
+        }
+        
+        if (tournament.entry_fee > 0) {
+            const newBalance = user.balance - tournament.entry_fee;
+            await updateUserBalance(user.id, newBalance);
+        }
+        
+        const teamData = {
+            id: Date.now().toString(),
+            teamName: req.body.teamName,
+            captainId: user.id,
+            captainName: user.display_name || user.steam_nickname,
+            captainTelegram: req.body.captainTelegram,
+            captainPhone: req.body.captainPhone,
+            players: req.body.players,
+            registeredAt: new Date().toISOString()
+        };
+        
+        await registerForTournament(req.params.id, teamData);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Tournament registration error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============= АДМИН МАРШРУТЫ =============
+app.get('/api/admin/users', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(403).json({ error: 'Admin only' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        
+        const users = await getAllUsers();
+        const usersWithBan = await Promise.all(users.map(async u => ({
+            ...u,
+            isBanned: await isUserBanned(u.id)
+        })));
+        res.json({ data: usersWithBan });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/admin/tournaments', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(403).json({ error: 'Admin only' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        
+        const newTournament = {
+            id: `tourn_${Date.now()}`,
+            ...req.body,
+            status: 'UPCOMING',
+            registered_teams: []
+        };
+        
+        await createTournament(newTournament);
+        res.status(201).json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/admin/search', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(403).json({ error: 'Admin only' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        
+        const { query: searchTerm } = req.query;
+        if (!searchTerm) return res.json({ data: [] });
+        
+        const users = await searchUsers(searchTerm);
+        const tournaments = await getTournaments();
+        const result = await Promise.all(users.map(async u => {
+            const userTournaments = tournaments.filter(t => {
+                const teams = t.registered_teams || [];
+                return teams.some(team => team.captainId === u.id);
+            });
+            const userPosts = await getUserLfgPosts(u.id);
+            return {
+                ...u,
+                isBanned: await isUserBanned(u.id),
+                tournaments: userTournaments,
+                lfgPosts: userPosts
+            };
+        }));
+        
+        res.json({ data: result });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
+app.post('/api/friends/request/:userId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const fromUser = await findUserById(payload.userId);
+        const toUser = await findUserById(req.params.userId);
+        
+        if (!fromUser || !toUser) return res.status(404).json({ error: 'User not found' });
+        if (fromUser.id === req.params.userId) return res.status(400).json({ error: 'Cannot add yourself' });
+        
+        const existingReq = await query('SELECT * FROM friend_requests WHERE from_id = $1 AND to_id = $2 AND status = $3', [fromUser.id, req.params.userId, 'pending']);
+        if (existingReq.rows.length > 0) return res.status(400).json({ error: 'Request already sent' });
+        
+        const existingFriend = await query('SELECT * FROM friends WHERE user_id = $1 AND friend_id = $2', [fromUser.id, req.params.userId]);
+        if (existingFriend.rows.length > 0) return res.status(400).json({ error: 'Already friends' });
+        
+        await sendFriendRequest(`fr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, fromUser.id, req.params.userId);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Friend request error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/friends/requests', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const requests = await getFriendRequests(payload.userId);
+        res.json({ data: requests });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/friends/request/:requestId/accept', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await acceptFriendRequest(req.params.requestId, payload.userId);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Accept friend error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/friends/request/:requestId/decline', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        await declineFriendRequest(req.params.requestId, payload.userId);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/friends', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const friends = await getFriends(payload.userId);
+        res.json({ data: friends });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ============= СООБЩЕНИЯ =============
+app.get('/api/messages/:userId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const messages = await getMessages(payload.userId, req.params.userId);
+        await markMessagesAsRead(payload.userId, req.params.userId);
+        res.json({ data: messages });
+    } catch (err) {
+        console.error('Error getting messages:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/messages/:userId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const { text } = req.body;
+        if (!text || !text.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+        
+        const newMessage = {
+            id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            from_id: payload.userId,
+            to_id: req.params.userId,
+            text: text.trim()
+        };
+        
+        const created = await createMessage(newMessage);
+        res.json({ success: true, message: created });
+    } catch (err) {
+        console.error('Error sending message:', err);
+        res.status(500).json({ error: 'Failed to send message' });
+    }
+});
+
+app.get('/api/messages/unread/count', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const count = await getUnreadCount(payload.userId);
+        res.json({ count });
+    } catch (err) {
+        res.json({ count: 0 });
+    }
+});
+
+// ============= ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ ПО ID =============
+app.get('/api/user/by-id/:userId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const user = await findUserById(req.params.userId);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.json({ user });
+    } catch (err) {
+        console.error('Error in /api/user/by-id:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 // ============= ИНВЕНТАРЬ =============
@@ -333,426 +1067,6 @@ app.get('/api/inventory/:steamId', async (req, res) => {
     }
 });
 
-// ============= ОНЛАЙН СЧЁТЧИК =============
-const onlineSessions = new Set();
-app.get('/api/online', (req, res) => { res.json({ count: onlineSessions.size }); });
-app.post('/api/heartbeat', (req, res) => { const { sessionId } = req.body; if (sessionId) onlineSessions.add(sessionId); res.json({ success: true }); });
-
-// ============= ПРОФИЛЬ =============
-app.get('/api/profile/:steamId', (req, res) => {
-    const db = loadDB();
-    const user = db.users.find(u => u.steamId === req.params.steamId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const isBanned = db.bannedUsers && db.bannedUsers.includes(user.id);
-    
-    const userTournaments = db.tournaments.filter(t => 
-        t.registeredTeams && t.registeredTeams.some(team => team.captainId === user.id)
-    ).map(t => ({ id: t.id, title: t.title, prizePool: t.prizePool, date: t.date }));
-    
-    const userPosts = db.lfgPosts.filter(p => p.authorId === user.id);
-    
-    res.json({ 
-        user: { ...user, isBanned }, 
-        tournaments: userTournaments,
-        lfgPosts: userPosts
-    });
-});
-
-app.put('/api/profile/:steamId', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const userIndex = db.users.findIndex(u => u.steamId === req.params.steamId);
-    if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
-    
-    const currentUser = db.users.find(u => u.id === payload.userId);
-    const isAdmin = currentUser?.isAdmin;
-    const isOwnProfile = db.users[userIndex].id === payload.userId;
-    
-    if (!isOwnProfile && !isAdmin) {
-        return res.status(403).json({ error: 'Forbidden' });
-    }
-    
-    const { displayName, region, role, hasMic, bio, balance, isAdmin: makeAdmin, isBanned } = req.body;
-    
-    if (displayName !== undefined) db.users[userIndex].displayName = displayName || db.users[userIndex].displayName;
-    if (region !== undefined) db.users[userIndex].region = region;
-    if (role !== undefined) db.users[userIndex].role = role;
-    if (hasMic !== undefined) db.users[userIndex].hasMic = hasMic;
-    if (bio !== undefined) db.users[userIndex].bio = bio;
-    
-    if (isAdmin) {
-        if (balance !== undefined) db.users[userIndex].balance = balance;
-        if (makeAdmin !== undefined) db.users[userIndex].isAdmin = makeAdmin;
-        if (isBanned !== undefined) {
-            if (!db.bannedUsers) db.bannedUsers = [];
-            if (isBanned) {
-                if (!db.bannedUsers.includes(db.users[userIndex].id)) {
-                    db.bannedUsers.push(db.users[userIndex].id);
-                }
-            } else {
-                db.bannedUsers = db.bannedUsers.filter(id => id !== db.users[userIndex].id);
-            }
-        }
-    }
-    
-    saveDB(db);
-    res.json({ user: db.users[userIndex] });
-});
-
-// Баланс
-app.get('/api/balance', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    res.json({ balance: user?.balance || 0 });
-});
-
-app.post('/api/balance/topup', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const { amount } = req.body;
-    const db = loadDB();
-    const userIndex = db.users.findIndex(u => u.id === payload.userId);
-    if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
-    if (!amount || amount < 100) return res.status(400).json({ error: 'Minimum topup is 100₽' });
-    db.users[userIndex].balance += amount;
-    saveDB(db);
-    res.json({ success: true, balance: db.users[userIndex].balance });
-});
-
-// Статистика
-app.get('/api/stats', (req, res) => {
-    const db = loadDB();
-    res.json({ totalUsers: db.users.length, totalLfgPosts: db.lfgPosts.length, totalTournaments: db.tournaments.length, online: onlineSessions.size });
-});
-
-// ============= LFG МАРШРУТЫ =============
-app.get('/api/lfg', (req, res) => {
-    const db = loadDB();
-    const { region, role } = req.query;
-    let posts = [...db.lfgPosts];
-    if (region && region !== 'all') posts = posts.filter(p => p.region === region);
-    if (role && role !== 'all') posts = posts.filter(p => p.role === role);
-    posts = posts.map(p => ({ ...p, playersNeeded: p.playersNeeded || 5, rolesNeeded: p.rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false } }));
-    res.json({ data: posts });
-});
-
-app.post('/api/lfg', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-    
-    const { title, region, schedule, description, playersNeeded, rolesNeeded } = req.body;
-    if (!title || !region || !schedule) return res.status(400).json({ error: 'Missing required fields' });
-    
-    const playersCount = playersNeeded || 5;
-    if (playersCount < 2 || playersCount > 4) {
-        return res.status(400).json({ error: 'Players needed must be between 2 and 4' });
-    }
-    
-    const userPosts = db.lfgPosts.filter(p => p.authorId === user.id);
-    if (userPosts.length >= 2) return res.status(400).json({ error: 'Maximum 2 active posts per user' });
-    
-    const newPost = { 
-        id: Date.now().toString(), 
-        authorId: user.id, 
-        author: { steamId: user.steamId, steamNickname: user.steamNickname, steamAvatar: user.steamAvatar, displayName: user.displayName, region: user.region, role: user.role }, 
-        title, region, rank: 'GOLD_1', role: user.role || 'RIFLER', schedule, description: description || '',
-        playersNeeded: playersCount,
-        rolesNeeded: rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
-        createdAt: new Date().toISOString() 
-    };
-    db.lfgPosts.unshift(newPost);
-    saveDB(db);
-    res.status(201).json({ data: newPost });
-});
-
-app.delete('/api/lfg/:id', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    const post = db.lfgPosts.find(p => p.id === req.params.id);
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-    
-    if (post.authorId !== user.id && !user?.isAdmin) return res.status(403).json({ error: 'Forbidden' });
-    
-    db.lfgPosts = db.lfgPosts.filter(p => p.id !== req.params.id);
-    saveDB(db);
-    res.json({ success: true });
-});
-
-// ============= ТУРНИРЫ =============
-app.get('/api/tournaments', (req, res) => {
-    const db = loadDB();
-    res.json({ data: db.tournaments });
-});
-
-app.delete('/api/tournaments/:id', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    
-    db.tournaments = db.tournaments.filter(t => t.id !== req.params.id);
-    saveDB(db);
-    res.json({ success: true });
-});
-
-app.post('/api/tournaments/:id/register', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-    
-    const tournament = db.tournaments.find(t => t.id === req.params.id);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    if (tournament.entryFee > 0 && user.balance < tournament.entryFee) return res.status(400).json({ error: 'Insufficient balance' });
-    
-    if (tournament.entryFee > 0) {
-        const userIndex = db.users.findIndex(u => u.id === user.id);
-        db.users[userIndex].balance -= tournament.entryFee;
-        db.payments.push({ id: Date.now().toString(), userId: user.id, amount: tournament.entryFee, status: 'SUCCEEDED', description: `Registration for ${tournament.title}`, createdAt: new Date().toISOString() });
-    }
-    
-    tournament.registeredTeams.push({ id: Date.now().toString(), teamName: req.body.teamName, captainId: user.id, captainName: user.displayName || user.steamNickname, captainTelegram: req.body.captainTelegram, captainPhone: req.body.captainPhone, players: req.body.players, registeredAt: new Date().toISOString() });
-    saveDB(db);
-    res.json({ success: true });
-});
-
-// ============= АДМИН МАРШРУТЫ =============
-app.get('/api/admin/users', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(403).json({ error: 'Admin only' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    
-    const usersWithBan = db.users.map(u => ({ ...u, isBanned: db.bannedUsers?.includes(u.id) || false }));
-    res.json({ data: usersWithBan });
-});
-
-app.post('/api/admin/tournaments', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(403).json({ error: 'Admin only' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    
-    db.tournaments.push({ id: Date.now().toString(), ...req.body, status: 'UPCOMING', registeredTeams: [], createdAt: new Date().toISOString() });
-    saveDB(db);
-    res.status(201).json({ success: true });
-});
-
-// Поиск пользователей по имени (для админа)
-app.get('/api/admin/search', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(403).json({ error: 'Admin only' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const user = db.users.find(u => u.id === payload.userId);
-    if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    
-    const { query } = req.query;
-    if (!query) return res.json({ data: [] });
-    
-    const searchLower = query.toLowerCase();
-    const foundUsers = db.users.filter(u => 
-        (u.displayName && u.displayName.toLowerCase().includes(searchLower)) ||
-        (u.steamNickname && u.steamNickname.toLowerCase().includes(searchLower))
-    );
-    
-    const result = foundUsers.map(u => {
-        const userTournaments = db.tournaments.filter(t => 
-            t.registeredTeams && t.registeredTeams.some(team => team.captainId === u.id)
-        );
-        const userPosts = db.lfgPosts.filter(p => p.authorId === u.id);
-        return {
-            ...u,
-            isBanned: db.bannedUsers?.includes(u.id) || false,
-            tournaments: userTournaments,
-            lfgPosts: userPosts
-        };
-    });
-    
-    res.json({ data: result });
-});
-
-// ============= ДРУЗЬЯ И СООБЩЕНИЯ =============
-
-app.post('/api/friends/request/:userId', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const fromUser = db.users.find(u => u.id === payload.userId);
-    const toUser = db.users.find(u => u.id === req.params.userId);
-    
-    if (!fromUser || !toUser) return res.status(404).json({ error: 'User not found' });
-    if (fromUser.id === req.params.userId) return res.status(400).json({ error: 'Cannot add yourself' });
-    if (db.friendRequests.some(r => r.fromId === fromUser.id && r.toId === req.params.userId)) return res.status(400).json({ error: 'Request already sent' });
-    if (db.friends.some(f => (f.userId === fromUser.id && f.friendId === req.params.userId) || (f.userId === req.params.userId && f.friendId === fromUser.id))) return res.status(400).json({ error: 'Already friends' });
-    
-    db.friendRequests.push({ id: Date.now().toString(), fromId: fromUser.id, fromName: fromUser.displayName || fromUser.steamNickname, fromAvatar: fromUser.steamAvatar, toId: req.params.userId, createdAt: new Date().toISOString(), status: 'pending' });
-    saveDB(db);
-    res.json({ success: true });
-});
-
-app.get('/api/friends/requests', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    res.json({ data: db.friendRequests.filter(r => r.toId === payload.userId && r.status === 'pending') });
-});
-
-app.post('/api/friends/request/:requestId/accept', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const requestIndex = db.friendRequests.findIndex(r => r.id === req.params.requestId);
-    if (requestIndex === -1) return res.status(404).json({ error: 'Request not found' });
-    const request = db.friendRequests[requestIndex];
-    if (request.toId !== payload.userId) return res.status(403).json({ error: 'Forbidden' });
-    
-    db.friends.push({ userId: request.fromId, friendId: request.toId, createdAt: new Date().toISOString() });
-    db.friends.push({ userId: request.toId, friendId: request.fromId, createdAt: new Date().toISOString() });
-    db.friendRequests.splice(requestIndex, 1);
-    saveDB(db);
-    res.json({ success: true });
-});
-
-app.post('/api/friends/request/:requestId/decline', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const requestIndex = db.friendRequests.findIndex(r => r.id === req.params.requestId);
-    if (requestIndex === -1) return res.status(404).json({ error: 'Request not found' });
-    const request = db.friendRequests[requestIndex];
-    if (request.toId !== payload.userId) return res.status(403).json({ error: 'Forbidden' });
-    
-    db.friendRequests.splice(requestIndex, 1);
-    saveDB(db);
-    res.json({ success: true });
-});
-
-app.get('/api/friends', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    const db = loadDB();
-    const friendships = db.friends.filter(f => f.userId === payload.userId);
-    const friends = friendships.map(f => db.users.find(u => u.id === f.friendId)).filter(Boolean);
-    res.json({ data: friends });
-});
-
-// ============= СООБЩЕНИЯ =============
-
-app.get('/api/messages/:userId', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const db = loadDB();
-        const messages = db.messages.filter(m => 
-            (m.fromId === payload.userId && m.toId === req.params.userId) ||
-            (m.fromId === req.params.userId && m.toId === payload.userId)
-        ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        
-        db.messages.forEach(msg => {
-            if (msg.toId === payload.userId && !msg.read) {
-                msg.read = true;
-            }
-        });
-        saveDB(db);
-        
-        res.json({ data: messages });
-    } catch(e) {
-        console.error('Error getting messages:', e);
-        res.json({ data: [] });
-    }
-});
-
-app.post('/api/messages/:userId', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const { text } = req.body;
-        if (!text || !text.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
-        
-        const db = loadDB();
-        const newMessage = {
-            id: Date.now().toString(),
-            fromId: payload.userId,
-            toId: req.params.userId,
-            text: text.trim(),
-            createdAt: new Date().toISOString(),
-            read: false
-        };
-        
-        if (!db.messages) db.messages = [];
-        db.messages.push(newMessage);
-        saveDB(db);
-        
-        res.json({ success: true, message: newMessage });
-    } catch(e) {
-        console.error('Error sending message:', e);
-        res.status(500).json({ error: 'Failed to send message' });
-    }
-});
-
-app.get('/api/messages/unread/count', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const db = loadDB();
-        const count = db.messages.filter(m => m.toId === payload.userId && !m.read).length;
-        res.json({ count });
-    } catch(e) {
-        res.json({ count: 0 });
-    }
-});
-
-// ============= НОВЫЙ МАРШРУТ ДЛЯ ЧАТА - ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ ПО ID =============
-app.get('/api/user/by-id/:userId', (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    
-    try {
-        const db = loadDB();
-        const user = db.users.find(u => u.id === req.params.userId);
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        
-        const { ...safeUser } = user;
-        res.json({ user: safeUser });
-    } catch(e) {
-        console.error('Error in /api/user/by-id:', e);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
 // ============= HEALTH CHECK =============
 app.get('/healthz', (req, res) => {
     res.status(200).json({ status: 'ok' });
@@ -763,11 +1077,16 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// ============= ЗАПУСК СЕРВЕРА =============
-app.listen(PORT, () => {
-    console.log(`\n🚀 BARSIDE CS2 Server running!`);
-    console.log(`📍 URL: http://localhost:${PORT}`);
-    console.log(`🔑 Steam Auth: http://localhost:${PORT}/api/auth/steam`);
-    console.log(`📁 Data folder: ${path.join(__dirname, 'data')}`);
-    console.log(`🐘 PostgreSQL: ${process.env.DB_HOST ? 'Connected' : 'Not configured, using JSON file'}`);
-});
+// ============= ИНИЦИАЛИЗАЦИЯ И ЗАПУСК =============
+async function startServer() {
+    await initPostgresDB();
+    
+    app.listen(PORT, () => {
+        console.log(`\n🚀 BARSIDE CS2 Server running!`);
+        console.log(`📍 API URL: https://barside-api.onrender.com`);
+        console.log(`🔑 Steam Auth: https://barside-api.onrender.com/api/auth/steam`);
+        console.log(`🐘 PostgreSQL: ${process.env.DB_HOST ? 'Connected' : 'Not configured!'}`);
+    });
+}
+
+startServer().catch(console.error);
