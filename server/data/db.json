@@ -1,57 +1,10 @@
 {
-  "users": [
-    {
-      "id": "user_1",
-      "steamId": "76561198000000000",
-      "steamNickname": "DemoPlayer",
-      "steamAvatar": "https://avatars.steamstatic.com/f9e4e7b6d8c3a1e5f7b9d2c4a6e8f0b2d4c6e8f0.jpg",
-      "displayName": "ProGamer",
-      "region": "RU",
-      "role": "RIFLER",
-      "hasMic": true,
-      "bio": "Опытный игрок, ищу команду для турниров",
-      "balance": 0,
-      "isAdmin": true,
-      "isBanned": false,
-      "createdAt": "2026-06-02T14:19:59.546Z",
-      "settings": { "emailNotifications": true, "theme": "dark" }
-    }
-  ],
+  "users": [],
   "lfgPosts": [],
-  "tournaments": [
-    {
-      "id": "tourn_1",
-      "title": "BARSIDE CUP #1",
-      "description": "Главный турнир сезона",
-      "prizePool": "50000₽",
-      "date": "2026-06-20T18:00:00",
-      "status": "UPCOMING",
-      "entryFee": 500,
-      "maxTeams": 16,
-      "registeredTeams": [],
-      "format": "5x5",
-      "rules": "1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass",
-      "schedule": "Групповой этап: первые выходные\nПлей-офф: следующие выходные",
-      "createdAt": "2026-06-02T14:19:59.547Z"
-    },
-    {
-      "id": "tourn_2",
-      "title": "WEEKEND BATTLE",
-      "description": "Еженедельный турнир для всех желающих",
-      "prizePool": "10000₽",
-      "date": "2026-06-13T20:00:00",
-      "status": "UPCOMING",
-      "entryFee": 0,
-      "maxTeams": 8,
-      "registeredTeams": [],
-      "format": "2x2",
-      "rules": "1. Формат Best of 1\n2. Карты: Dust2, Mirage",
-      "schedule": "Один день: 13 июня с 20:00",
-      "createdAt": "2026-06-02T14:19:59.547Z"
-    }
-  ],
+  "tournaments": [],
   "payments": [],
   "friends": [],
   "friendRequests": [],
-  "messages": []
+  "messages": [],
+  "bannedUsers": []
 }
