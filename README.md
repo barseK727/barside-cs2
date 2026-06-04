@@ -1,2 +1,2 @@
-"# barside-cs2  " 
+"# barside-cs2" 
 
