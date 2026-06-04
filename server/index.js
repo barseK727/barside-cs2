@@ -2,28 +2,138 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { hasSubscribers } = require('diagnostics_channel');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
+// ============= ПОДКЛЮЧЕНИЕ К POSTGRESQL =============
+const { Pool } = require('pg');
 
-// Парсер cookies
-app.use((req, res, next) => {
-    req.cookies = {};
-    const cookieHeader = req.headers.cookie;
-    if (cookieHeader) {
-        cookieHeader.split(';').forEach(cookie => {
-            const [name, value] = cookie.trim().split('=');
-            req.cookies[name] = decodeURIComponent(value);
-        });
-    }
-    next();
+// Настройка подключения к PostgreSQL
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  ssl: { rejectUnauthorized: false }  // важно для Render!
 });
 
-// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С БД =============
+// Инициализация таблиц в PostgreSQL
+async function initPostgresDB() {
+  const client = await pool.connect();
+  try {
+    // Таблица пользователей
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        steam_id TEXT UNIQUE NOT NULL,
+        steam_nickname TEXT NOT NULL,
+        steam_avatar TEXT,
+        display_name TEXT UNIQUE,
+        region TEXT DEFAULT 'RU',
+        role TEXT DEFAULT 'RIFLER',
+        has_mic BOOLEAN DEFAULT FALSE,
+        bio TEXT,
+        balance INTEGER DEFAULT 1000,
+        is_admin BOOLEAN DEFAULT FALSE,
+        is_banned BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        settings JSONB
+      )
+    `);
+
+    // Таблица LFG постов
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS lfg_posts (
+        id TEXT PRIMARY KEY,
+        author_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        region TEXT NOT NULL,
+        rank TEXT,
+        role TEXT,
+        schedule TEXT NOT NULL,
+        description TEXT,
+        players_needed INTEGER DEFAULT 5,
+        roles_needed JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // Таблица друзей
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS friends (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        friend_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, friend_id)
+      )
+    `);
+
+    // Таблица заявок в друзья
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        id TEXT PRIMARY KEY,
+        from_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        to_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        status TEXT DEFAULT 'pending'
+      )
+    `);
+
+    // Таблица сообщений
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        from_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        to_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // Таблица турниров
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tournaments (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        prize_pool TEXT,
+        date TIMESTAMP,
+        status TEXT DEFAULT 'UPCOMING',
+        entry_fee INTEGER DEFAULT 0,
+        max_teams INTEGER DEFAULT 16,
+        registered_teams JSONB,
+        format TEXT,
+        rules TEXT,
+        schedule TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // Таблица забаненных пользователей
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS banned_users (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        banned_until TIMESTAMP,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id)
+      )
+    `);
+
+    console.log('✅ PostgreSQL tables created/verified');
+  } catch (err) {
+    console.error('Error creating tables:', err);
+  } finally {
+    client.release();
+  }
+}
+
+// Вызов инициализации БД (не блокирует запуск сервера)
+initPostgresDB().catch(console.error);
+
+// ============= ФУНКЦИИ ДЛЯ РАБОТЫ С БД (JSON файл - резервный вариант) =============
 function loadDB() {
     const dataPath = path.join(__dirname, 'data', 'db.json');
     if (fs.existsSync(dataPath)) {
@@ -58,6 +168,23 @@ function saveDB(db) {
     }
     fs.writeFileSync(dataPath, JSON.stringify(db, null, 2));
 }
+
+// Middleware
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Парсер cookies
+app.use((req, res, next) => {
+    req.cookies = {};
+    const cookieHeader = req.headers.cookie;
+    if (cookieHeader) {
+        cookieHeader.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            req.cookies[name] = decodeURIComponent(value);
+        });
+    }
+    next();
+});
 
 // ============= STEAM AUTH =============
 const STEAM_API_KEY = process.env.STEAM_API_KEY || 'B71E8712CD37B69EFF9DAE898EBDB2A3';
@@ -642,4 +769,5 @@ app.listen(PORT, () => {
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🔑 Steam Auth: http://localhost:${PORT}/api/auth/steam`);
     console.log(`📁 Data folder: ${path.join(__dirname, 'data')}`);
+    console.log(`🐘 PostgreSQL: ${process.env.DB_HOST ? 'Connected' : 'Not configured, using JSON file'}`);
 });
