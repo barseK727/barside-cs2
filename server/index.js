@@ -18,8 +18,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПРЕОБРАЗОВАНИЯ =============
-// Конвертирует snake_case из БД в camelCase для фронтенда
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function toCamelCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   const newObj = {};
@@ -30,7 +29,6 @@ function toCamelCase(obj) {
   return newObj;
 }
 
-// Конвертирует camelCase из фронтенда в snake_case для БД
 function toSnakeCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   const newObj = {};
