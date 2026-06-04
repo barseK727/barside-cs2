@@ -765,6 +765,7 @@
         }
         
                 // ============= СТРАНИЦА LFG =============
+                // ============= СТРАНИЦА LFG =============
         function LfgPage({ navigate }) {
             const { user } = useAuth();
             const [posts, setPosts] = React.useState([]);
@@ -878,28 +879,108 @@
                     )
                 ),
                 
+                // ФОРМА СОЗДАНИЯ АНКЕТЫ
+                showForm && React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, 'Новая анкета'),
+                    React.createElement('form', { onSubmit: handleSubmit },
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Заголовок *'),
+                            React.createElement('input', { className: 'form-input', value: formData.title, onChange: (e) => setFormData({ ...formData, title: e.target.value }), placeholder: 'Например: Ищу тиммейтов для игры на выходных' })
+                        ),
+                        React.createElement('div', { className: 'grid-2' },
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Регион'),
+                                React.createElement('select', { className: 'form-input', value: formData.region, onChange: (e) => setFormData({ ...formData, region: e.target.value }) },
+                                    React.createElement('option', { value: 'RU' }, '🇷🇺 Россия'),
+                                    React.createElement('option', { value: 'EU' }, '🇪🇺 Европа'),
+                                    React.createElement('option', { value: 'NA' }, '🇺🇸 США')
+                                )
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', null, 'Сколько игроков нужно?'),
+                                React.createElement('select', { className: 'form-input', value: formData.playersNeeded, onChange: (e) => setFormData({ ...formData, playersNeeded: parseInt(e.target.value) }) },
+                                    React.createElement('option', { value: '2' }, '2 игрока'),
+                                    React.createElement('option', { value: '3' }, '3 игрока'),
+                                    React.createElement('option', { value: '4' }, '4 игрока'),
+                                    React.createElement('option', { value: '5' }, '5 игроков')
+                                )
+                            )
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Расписание *'),
+                            React.createElement('input', { className: 'form-input', value: formData.schedule, onChange: (e) => setFormData({ ...formData, schedule: e.target.value }), placeholder: 'Вечера будних дней после 20:00' })
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Какие роли нужны?'),
+                            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '10px' } },
+                                rolesList.map(role => React.createElement('button', {
+                                    key: role.key, type: 'button',
+                                    onClick: () => toggleRole(role.key),
+                                    className: formData.rolesNeeded[role.key] ? 'btn btn-primary' : 'btn btn-outline',
+                                    style: { padding: '8px 16px', fontSize: '13px' }
+                                }, role.name))
+                            )
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Описание'),
+                            React.createElement('textarea', { className: 'form-input', value: formData.description, onChange: (e) => setFormData({ ...formData, description: e.target.value }), rows: 3, placeholder: 'Расскажите о себе...' })
+                        ),
+                        React.createElement('div', { className: 'flex', style: { justifyContent: 'flex-end', gap: '12px', marginTop: '20px' } },
+                            React.createElement('button', { type: 'button', onClick: () => setShowForm(false), className: 'btn', style: { background: '#555' } }, 'Отмена'),
+                            React.createElement('button', { type: 'submit', className: 'btn btn-primary' }, 'Создать анкету')
+                        )
+                    )
+                ),
+                
+                // ФИЛЬТРЫ
+                showFilters && React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('h3', { className: 'text-green', style: { marginBottom: '15px' } }, 'Фильтры'),
+                    React.createElement('div', { className: 'grid-2' },
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Регион'),
+                            React.createElement('select', { className: 'form-input', value: filters.region, onChange: (e) => setFilters({ ...filters, region: e.target.value }) },
+                                React.createElement('option', { value: 'all' }, 'Все'),
+                                React.createElement('option', { value: 'RU' }, 'Россия'),
+                                React.createElement('option', { value: 'EU' }, 'Европа')
+                            )
+                        ),
+                        React.createElement('div', { className: 'form-group' },
+                            React.createElement('label', null, 'Количество игроков'),
+                            React.createElement('select', { className: 'form-input', value: filters.playersNeeded, onChange: (e) => setFilters({ ...filters, playersNeeded: e.target.value }) },
+                                React.createElement('option', { value: 'all' }, 'Все'),
+                                React.createElement('option', { value: '2' }, '2'),
+                                React.createElement('option', { value: '3' }, '3'),
+                                React.createElement('option', { value: '4' }, '4'),
+                                React.createElement('option', { value: '5' }, '5')
+                            )
+                        )
+                    ),
+                    React.createElement('button', { onClick: () => setFilters({ region: 'all', role: 'all', playersNeeded: 'all' }), className: 'btn', style: { background: '#555' } }, 'Сбросить')
+                ),
+                
+                // СПИСОК АНКЕТ
                 loading ? React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...') :
                 posts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет активных анкет') :
                 React.createElement('div', { className: 'lfg-grid' },
                     posts.map(post => {
                         const isAuthor = user?.id === post.authorId;
-                        const rolesNeeded = post.rolesNeeded || {};
                         return React.createElement('div', { key: post.id, className: 'lfg-card' },
                             React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '15px' } },
-                                React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center' } },
-                                    React.createElement('img', { src: post.author.steamAvatar, style: { width: '52px', height: '52px', borderRadius: '50%', border: '2px solid var(--primary)', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }),
+                                React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author.steamId}`) },
+                                    React.createElement('img', { src: post.author.steamAvatar, style: { width: '52px', height: '52px', borderRadius: '50%', border: '2px solid var(--primary)' } }),
                                     React.createElement('div', null,
-                                        React.createElement('h3', { style: { fontSize: '18px', marginBottom: '4px', cursor: 'pointer', color: 'var(--primary-light)' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }, post.title),
+                                        React.createElement('h3', { style: { fontSize: '18px', marginBottom: '4px' } }, post.title),
                                         React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, 
-                                            React.createElement('span', { style: { cursor: 'pointer', textDecoration: 'underline' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }, post.author.displayName || post.author.steamNickname),
-                                            ' • ', post.region === 'RU' ? '🇷🇺' : '🌏'
+                                            post.author.displayName || post.author.steamNickname,
+                                            ' • Ищет ', post.playersNeeded, ' игроков'
                                         )
                                     )
                                 ),
-                                isAuthor && React.createElement('button', { onClick: () => handleDelete(post.id), className: 'btn', style: { background: 'rgba(244, 67, 54, 0.2)', color: '#f44336', padding: '6px 12px' } }, '🗑')
+                                isAuthor && React.createElement('button', { onClick: () => handleDelete(post.id), className: 'btn', style: { background: 'rgba(244, 67, 54, 0.2)', color: '#f44336', padding: '6px 12px' } }, '🗑 Удалить')
                             ),
                             React.createElement('p', { className: 'text-gray', style: { marginBottom: '12px' } }, '📅 ', post.schedule),
-                            React.createElement('button', { onClick: async () => {
+                            post.description && React.createElement('p', { className: 'text-gray', style: { fontSize: '13px', marginBottom: '15px' } }, post.description),
+                            !isAuthor && React.createElement('button', { onClick: async () => {
                                 try {
                                     await api.post(`/friends/request/${post.authorId}`);
                                     showToast('Заявка отправлена', 'success', 'Друзья');
