@@ -764,8 +764,387 @@
             );
         }
         
-        // Остальные компоненты (LfgPage, FriendsPage, ChatPage, TournamentsPage, AdminPanel) остаются без изменений
-        // Я сократил для длины ответа, но в полной версии они все есть
+                // ============= СТРАНИЦА LFG =============
+        function LfgPage({ navigate }) {
+            const { user } = useAuth();
+            const [posts, setPosts] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [showForm, setShowForm] = React.useState(false);
+            const [showFilters, setShowFilters] = React.useState(false);
+            const [filters, setFilters] = React.useState({ region: 'all', role: 'all', playersNeeded: 'all' });
+            const [formData, setFormData] = React.useState({ 
+                title: '', region: 'RU', schedule: '', description: '',
+                playersNeeded: 5,
+                rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+            });
+            
+            const rolesList = [
+                { key: 'IGL', name: '👑 Капитан (IGL)', icon: 'crown', color: '#ffd700' },
+                { key: 'AWP', name: '🔫 Снайпер (AWP)', icon: 'crosshairs', color: '#4caf50' },
+                { key: 'ENTRY', name: '⚡ Энтри-фрэгер', icon: 'bolt', color: '#ff9800' },
+                { key: 'RIFLER', name: '🎯 Рифлер', icon: 'crosshairs', color: '#2196f3' },
+                { key: 'LURKER', name: '👤 Люркер', icon: 'eye-slash', color: '#9c27b0' }
+            ];
+            
+            const fetchPosts = async () => {
+                setLoading(true);
+                try {
+                    const params = new URLSearchParams();
+                    if (filters.region !== 'all') params.append('region', filters.region);
+                    if (filters.role !== 'all') params.append('role', filters.role);
+                    const res = await api.get(`/lfg?${params.toString()}`);
+                    let filteredPosts = res.data.data || [];
+                    if (filters.playersNeeded !== 'all') {
+                        const needed = parseInt(filters.playersNeeded);
+                        filteredPosts = filteredPosts.filter(p => (p.playersNeeded || 5) === needed);
+                    }
+                    filteredPosts = filteredPosts.map(p => ({
+                        ...p,
+                        playersNeeded: p.playersNeeded || 5,
+                        rolesNeeded: p.rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }
+                    }));
+                    setPosts(filteredPosts);
+                } catch (err) { 
+                    showToast('Ошибка загрузки анкет', 'error', 'Ошибка');
+                }
+                finally { setLoading(false); }
+            };
+            
+            React.useEffect(() => { fetchPosts(); }, [filters]);
+            
+            const userPostsCount = user ? posts.filter(p => p.authorId === user.id).length : 0;
+            const canCreateMore = userPostsCount < 2;
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (userPostsCount >= 2) {
+                    showToast('Вы можете создать максимум 2 активные анкеты', 'error', 'Лимит');
+                    return;
+                }
+                if (!formData.title.trim()) {
+                    showToast('Введите заголовок анкеты', 'error', 'Ошибка');
+                    return;
+                }
+                if (!formData.schedule.trim()) {
+                    showToast('Укажите расписание', 'error', 'Ошибка');
+                    return;
+                }
+                const selectedRoles = Object.keys(formData.rolesNeeded).filter(key => formData.rolesNeeded[key]);
+                if (selectedRoles.length === 0) {
+                    showToast('Выберите хотя бы одну роль', 'error', 'Ошибка');
+                    return;
+                }
+                try {
+                    await api.post('/lfg', { ...formData, rank: 'GOLD_1', role: user?.role || 'RIFLER' });
+                    setShowForm(false);
+                    setFormData({ title: '', region: 'RU', schedule: '', description: '', playersNeeded: 5, rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false } });
+                    fetchPosts();
+                    showToast('Анкета успешно создана', 'success', 'Создано');
+                } catch (err) { 
+                    showToast('Ошибка при создании анкеты', 'error', 'Ошибка');
+                }
+            };
+            
+            const handleDelete = async (id) => {
+                const confirmed = await customConfirm('Удалить анкету?');
+                if (confirmed) {
+                    try {
+                        await api.delete(`/lfg/${id}`);
+                        fetchPosts();
+                        showToast('Анкета удалена', 'success', 'Удалено');
+                    } catch (err) {
+                        showToast('Ошибка при удалении', 'error', 'Ошибка');
+                    }
+                }
+            };
+            
+            const toggleRole = (roleKey) => {
+                setFormData(prev => ({ ...prev, rolesNeeded: { ...prev.rolesNeeded, [roleKey]: !prev.rolesNeeded[roleKey] } }));
+            };
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' } },
+                    React.createElement('div', null,
+                        React.createElement('h1', { style: { fontSize: '32px', display: 'flex', alignItems: 'center', gap: '10px' } }, React.createElement('i', { className: 'fas fa-users' }), ' Поиск тиммейтов'),
+                        React.createElement('p', { className: 'text-gray' }, 'Найди единомышленников для игры в CS2')
+                    ),
+                    React.createElement('div', { style: { display: 'flex', gap: '12px' } },
+                        React.createElement('button', { onClick: () => setShowFilters(!showFilters), className: `btn ${showFilters ? 'btn-primary' : 'btn-outline'}`, style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('i', { className: 'fas fa-sliders-h' }), ' Фильтры'
+                        ),
+                        user && canCreateMore && !showForm && React.createElement('button', { onClick: () => setShowForm(true), className: 'btn btn-primary', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('i', { className: 'fas fa-plus-circle' }), ' Создать анкету'
+                        )
+                    )
+                ),
+                
+                loading ? React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...') :
+                posts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет активных анкет') :
+                React.createElement('div', { className: 'lfg-grid' },
+                    posts.map(post => {
+                        const isAuthor = user?.id === post.authorId;
+                        const rolesNeeded = post.rolesNeeded || {};
+                        return React.createElement('div', { key: post.id, className: 'lfg-card' },
+                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '15px' } },
+                                React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center' } },
+                                    React.createElement('img', { src: post.author.steamAvatar, style: { width: '52px', height: '52px', borderRadius: '50%', border: '2px solid var(--primary)', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }),
+                                    React.createElement('div', null,
+                                        React.createElement('h3', { style: { fontSize: '18px', marginBottom: '4px', cursor: 'pointer', color: 'var(--primary-light)' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }, post.title),
+                                        React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, 
+                                            React.createElement('span', { style: { cursor: 'pointer', textDecoration: 'underline' }, onClick: () => navigate(`/profile/${post.author.steamId}`) }, post.author.displayName || post.author.steamNickname),
+                                            ' • ', post.region === 'RU' ? '🇷🇺' : '🌏'
+                                        )
+                                    )
+                                ),
+                                isAuthor && React.createElement('button', { onClick: () => handleDelete(post.id), className: 'btn', style: { background: 'rgba(244, 67, 54, 0.2)', color: '#f44336', padding: '6px 12px' } }, '🗑')
+                            ),
+                            React.createElement('p', { className: 'text-gray', style: { marginBottom: '12px' } }, '📅 ', post.schedule),
+                            React.createElement('button', { onClick: async () => {
+                                try {
+                                    await api.post(`/friends/request/${post.authorId}`);
+                                    showToast('Заявка отправлена', 'success', 'Друзья');
+                                } catch (err) {
+                                    showToast(err.response?.data?.error || 'Ошибка', 'error', 'Ошибка');
+                                }
+                            }, className: 'btn btn-primary', style: { width: '100%' } }, '➕ Добавить в друзья')
+                        );
+                    })
+                )
+            );
+        }
+        
+        // ============= СТРАНИЦА ДРУЗЕЙ =============
+        function FriendsPage({ navigate }) {
+            const { user } = useAuth();
+            const [friends, setFriends] = React.useState([]);
+            const [requests, setRequests] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [activeTab, setActiveTab] = React.useState('friends');
+            
+            const loadData = async () => {
+                if (!user) { setLoading(false); return; }
+                setLoading(true);
+                try {
+                    const [friendsRes, requestsRes] = await Promise.all([
+                        api.get('/friends'),
+                        api.get('/friends/requests')
+                    ]);
+                    setFriends(friendsRes.data.data || []);
+                    setRequests(requestsRes.data.data || []);
+                } catch (err) { showToast('Ошибка загрузки', 'error', 'Ошибка'); }
+                setLoading(false);
+            };
+            
+            React.useEffect(() => { if (user) loadData(); else setLoading(false); }, [user]);
+            
+            const handleRequest = async (requestId, action) => {
+                try {
+                    await api.post(`/friends/request/${requestId}/${action}`);
+                    await loadData();
+                    showToast(action === 'accept' ? 'Заявка принята' : 'Заявка отклонена', 'success');
+                } catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            if (!user) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Войдите через Steam');
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('h1', { style: { fontSize: '32px', marginBottom: '20px' } }, '👥 Друзья'),
+                React.createElement('div', { className: 'flex', style: { marginBottom: '20px', gap: '10px' } },
+                    React.createElement('button', { onClick: () => setActiveTab('friends'), className: `btn ${activeTab === 'friends' ? 'btn-primary' : 'btn-outline'}` }, `Друзья (${friends.length})`),
+                    React.createElement('button', { onClick: () => setActiveTab('requests'), className: `btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-outline'}` }, `Заявки (${requests.length})`)
+                ),
+                activeTab === 'friends' ? (
+                    friends.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет друзей') :
+                    React.createElement('div', { style: { display: 'grid', gap: '15px' } },
+                        friends.map(friend => React.createElement('div', { key: friend.id, className: 'card', style: { display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${friend.steamId}`) },
+                            React.createElement('img', { src: friend.steamAvatar, style: { width: '50px', height: '50px', borderRadius: '50%' } }),
+                            React.createElement('div', { style: { flex: 1 } },
+                                React.createElement('h3', null, friend.displayName || friend.steamNickname)
+                            ),
+                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); navigate('/chat/' + friend.id); }, className: 'btn btn-primary' }, '💬 Чат')
+                        ))
+                    )
+                ) : (
+                    requests.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет заявок') :
+                    requests.map(req => React.createElement('div', { key: req.id, className: 'card', style: { display: 'flex', alignItems: 'center', gap: '15px' } },
+                        React.createElement('img', { src: req.fromAvatar, style: { width: '50px', height: '50px', borderRadius: '50%' } }),
+                        React.createElement('div', { style: { flex: 1 } }, React.createElement('h3', null, req.fromName)),
+                        React.createElement('button', { onClick: () => handleRequest(req.id, 'accept'), className: 'btn btn-primary' }, '✅ Принять'),
+                        React.createElement('button', { onClick: () => handleRequest(req.id, 'decline'), className: 'btn', style: { background: '#555' } }, '❌ Отклонить')
+                    ))
+                )
+            );
+        }
+        
+        // ============= СТРАНИЦА ЧАТА =============
+        function ChatPage({ userId, navigate }) {
+            const { user } = useAuth();
+            const [chatUser, setChatUser] = React.useState(null);
+            const [messages, setMessages] = React.useState([]);
+            const [newMessage, setNewMessage] = React.useState('');
+            const [loading, setLoading] = React.useState(true);
+            const messagesEndRef = React.useRef(null);
+            
+            React.useEffect(() => {
+                if (!user || !userId) return;
+                api.get(`/user/by-id/${userId}`).then(res => setChatUser(res.data.user)).catch(() => setChatUser(null));
+                api.get(`/messages/${userId}`).then(res => { setMessages(res.data.data || []); setLoading(false); }).catch(() => setLoading(false));
+            }, [userId, user]);
+            
+            React.useEffect(() => {
+                const interval = setInterval(() => { if (userId) api.get(`/messages/${userId}`).then(res => setMessages(res.data.data || [])).catch(console.error); }, 3000);
+                return () => clearInterval(interval);
+            }, [userId]);
+            
+            const sendMessage = async (e) => {
+                e.preventDefault();
+                if (!newMessage.trim()) return;
+                try {
+                    await api.post(`/messages/${userId}`, { text: newMessage });
+                    setNewMessage('');
+                    const res = await api.get(`/messages/${userId}`);
+                    setMessages(res.data.data || []);
+                } catch (err) { showToast('Ошибка отправки', 'error'); }
+            };
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            if (!chatUser) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Пользователь не найден');
+            
+            return React.createElement('div', { className: 'container', style: { maxWidth: '800px', margin: '0 auto' } },
+                React.createElement('div', { className: 'card', style: { marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px' } },
+                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn', style: { background: '#555' } }, '← Назад'),
+                    React.createElement('img', { src: chatUser.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
+                    React.createElement('h3', null, chatUser.displayName || chatUser.steamNickname)
+                ),
+                React.createElement('div', { className: 'card', style: { height: '450px', display: 'flex', flexDirection: 'column' } },
+                    React.createElement('div', { style: { flex: 1, overflowY: 'auto', padding: '16px' } },
+                        messages.length === 0 ? React.createElement('div', { className: 'text-center', style: { padding: '40px' } }, 'Нет сообщений') :
+                        messages.map(msg => {
+                            const isOwn = msg.fromId === user?.id;
+                            return React.createElement('div', { key: msg.id, style: { textAlign: isOwn ? 'right' : 'left', marginBottom: '10px' } },
+                                React.createElement('div', { style: { display: 'inline-block', background: isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.1)', padding: '8px 12px', borderRadius: '12px', maxWidth: '70%' } },
+                                    React.createElement('p', { style: { fontSize: '14px' } }, msg.text),
+                                    React.createElement('p', { style: { fontSize: '10px', opacity: 0.6 } }, new Date(msg.createdAt).toLocaleTimeString())
+                                )
+                            );
+                        }),
+                        React.createElement('div', { ref: messagesEndRef })
+                    ),
+                    React.createElement('form', { onSubmit: sendMessage, style: { display: 'flex', gap: '10px', padding: '12px', borderTop: '1px solid rgba(76,0,255,0.2)' } },
+                        React.createElement('input', { type: 'text', value: newMessage, onChange: (e) => setNewMessage(e.target.value), placeholder: 'Сообщение...', className: 'form-input', style: { flex: 1 } }),
+                        React.createElement('button', { type: 'submit', className: 'btn btn-primary' }, '📤')
+                    )
+                )
+            );
+        }
+        
+        // ============= СТРАНИЦА ТУРНИРОВ =============
+        function TournamentsPage({ navigate }) {
+            const { user } = useAuth();
+            const [tournaments, setTournaments] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [selectedTournament, setSelectedTournament] = React.useState(null);
+            
+            React.useEffect(() => {
+                api.get('/tournaments').then(res => { setTournaments(res.data.data || []); setLoading(false); }).catch(() => setLoading(false));
+            }, []);
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('h1', { style: { fontSize: '32px', marginBottom: '20px' } }, '🏆 Турниры CS2'),
+                tournaments.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет турниров') :
+                React.createElement('div', { className: 'tournaments-grid' },
+                    tournaments.map(t => React.createElement('div', { key: t.id, className: 'tournament-card', onClick: () => setSelectedTournament(t) },
+                        React.createElement('h3', { style: { color: '#4caf50' } }, t.title),
+                        React.createElement('div', { className: 'prize' }, `💰 ${t.prizePool}`),
+                        React.createElement('p', null, `📅 ${new Date(t.date).toLocaleDateString('ru-RU')}`),
+                        React.createElement('button', { className: 'btn btn-primary', style: { marginTop: '15px', width: '100%' } }, 'Подробнее')
+                    ))
+                ),
+                selectedTournament && React.createElement('div', { className: 'modal-overlay', onClick: () => setSelectedTournament(null) },
+                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation() },
+                        React.createElement('div', { className: 'modal-header' },
+                            React.createElement('h2', { className: 'text-green' }, selectedTournament.title),
+                            React.createElement('button', { className: 'modal-close', onClick: () => setSelectedTournament(null) }, '✕')
+                        ),
+                        React.createElement('div', { className: 'prize', style: { textAlign: 'center' } }, `🏆 ${selectedTournament.prizePool}`),
+                        React.createElement('p', null, `📅 Дата: ${new Date(selectedTournament.date).toLocaleString('ru-RU')}`),
+                        React.createElement('p', null, `👥 Формат: ${selectedTournament.format}`),
+                        React.createElement('p', null, `💰 Взнос: ${selectedTournament.entryFee} ₽`),
+                        selectedTournament.description && React.createElement('p', { className: 'text-gray', style: { marginTop: '15px' } }, selectedTournament.description),
+                        React.createElement('button', { onClick: () => showToast('Функция в разработке', 'info'), className: 'btn btn-primary', style: { width: '100%', marginTop: '20px' } }, 'Зарегистрировать команду')
+                    )
+                )
+            );
+        }
+        
+        // ============= АДМИН ПАНЕЛЬ =============
+        function AdminPanel({ navigate }) {
+            const { user } = useAuth();
+            const [users, setUsers] = React.useState([]);
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [searchResults, setSearchResults] = React.useState([]);
+            
+            React.useEffect(() => {
+                if (user?.isAdmin) api.get('/admin/users').then(res => setUsers(res.data.data || [])).catch(console.error);
+            }, [user]);
+            
+            const handleSearch = async () => {
+                if (!searchQuery.trim()) { setSearchResults([]); return; }
+                try {
+                    const res = await api.get(`/admin/search?query=${encodeURIComponent(searchQuery)}`);
+                    setSearchResults(res.data.data || []);
+                } catch (err) { showToast('Ошибка поиска', 'error'); }
+            };
+            
+            if (!user?.isAdmin) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Доступ запрещён');
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('h1', { style: { fontSize: '32px', marginBottom: '20px' } }, '👑 Админ-панель'),
+                React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('h3', { className: 'text-green' }, '🔍 Поиск пользователей'),
+                    React.createElement('div', { className: 'flex', style: { gap: '10px', marginTop: '10px' } },
+                        React.createElement('input', { type: 'text', className: 'form-input', style: { flex: 1 }, value: searchQuery, onChange: (e) => setSearchQuery(e.target.value), placeholder: 'Поиск по нику...', onKeyPress: (e) => e.key === 'Enter' && handleSearch() }),
+                        React.createElement('button', { onClick: handleSearch, className: 'btn btn-primary' }, 'Найти')
+                    ),
+                    searchResults.length > 0 && React.createElement('div', { style: { marginTop: '20px' } },
+                        searchResults.map(foundUser => React.createElement('div', { key: foundUser.id, className: 'card', style: { marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${foundUser.steamId}`) },
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '15px' } },
+                                React.createElement('img', { src: foundUser.steamAvatar, style: { width: '50px', height: '50px', borderRadius: '50%' } }),
+                                React.createElement('div', { style: { flex: 1 } },
+                                    React.createElement('h3', null, foundUser.displayName || foundUser.steamNickname),
+                                    React.createElement('p', { className: 'text-gray' }, `Баланс: ${foundUser.balance} ₽ | ${foundUser.isBanned ? '🔴 Забанен' : '🟢 Активен'}`)
+                                ),
+                                React.createElement('button', { onClick: (e) => { e.stopPropagation(); navigate(`/profile/${foundUser.steamId}`); }, className: 'btn btn-primary' }, 'Ред.')
+                            )
+                        ))
+                    )
+                ),
+                React.createElement('div', { className: 'card' },
+                    React.createElement('h2', { className: 'text-green' }, 'Все пользователи'),
+                    React.createElement('div', { style: { overflowX: 'auto', marginTop: '15px' } },
+                        React.createElement('table', { style: { width: '100%' } },
+                            React.createElement('thead', null,
+                                React.createElement('tr', { style: { borderBottom: '1px solid #333' } },
+                                    React.createElement('th', { style: { padding: '10px', textAlign: 'left' } }, 'Ник'),
+                                    React.createElement('th', { style: { padding: '10px', textAlign: 'left' } }, 'Баланс'),
+                                    React.createElement('th', { style: { padding: '10px', textAlign: 'left' } }, 'Статус')
+                                )
+                            ),
+                            React.createElement('tbody', null,
+                                users.map(u => React.createElement('tr', { key: u.id, style: { borderBottom: '1px solid #333' }, onClick: () => navigate(`/profile/${u.steamId}`), style: { cursor: 'pointer' } },
+                                    React.createElement('td', { style: { padding: '10px' } }, React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, React.createElement('img', { src: u.steamAvatar, style: { width: '30px', height: '30px', borderRadius: '50%' } }), u.displayName || u.steamNickname)),
+                                    React.createElement('td', { style: { padding: '10px' } }, `${u.balance} ₽`),
+                                    React.createElement('td', { style: { padding: '10px' } }, u.isBanned ? '🔴 Забанен' : '🟢 Активен')
+                                ))
+                            )
+                        )
+                    )
+                )
+            );
+        }
         
         // ============= ГЛАВНОЕ ПРИЛОЖЕНИЕ =============
         function App() {
