@@ -18,27 +18,52 @@
         .status-online { color: #4caf50; }
         .status-offline { color: #9e9e9e; }
         .status-dnd { color: #f44336; }
-        .team-slot { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; transition: all 0.2s; }
-        .team-slot.filled { background: rgba(76,0,255,0.15); border: 1px solid rgba(76,0,255,0.3); }
-        .team-slot.empty { background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.2); }
-        .role-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; }
-        .role-IGL { background: #ffd70020; color: #ffd700; border: 1px solid #ffd70040; }
-        .role-AWP { background: #4caf5020; color: #4caf50; border: 1px solid #4caf5040; }
-        .role-ENTRY { background: #ff980020; color: #ff9800; border: 1px solid #ff980040; }
-        .role-RIFLER { background: #2196f320; color: #2196f3; border: 1px solid #2196f340; }
-        .role-LURKER { background: #9c27b020; color: #9c27b0; border: 1px solid #9c27b040; }
-        .response-card { background: rgba(255,255,255,0.03); border-radius: 16px; padding: 15px; margin-bottom: 12px; transition: all 0.2s; }
-        .response-card:hover { background: rgba(255,255,255,0.06); }
-        .stars { display: inline-flex; gap: 4px; cursor: pointer; }
-        .star { font-size: 20px; color: #555; transition: color 0.1s; }
-        .star.active { color: #ffd700; }
-        .weekday-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-        .weekday-btn { padding: 6px 12px; border-radius: 20px; font-size: 12px; }
-        .weekday-btn.selected { background: var(--primary); color: white; }
-        @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-        .notification-badge { animation: pulse-green 1s infinite; }
-        .lfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 24px; margin: 30px 0; }
-        @media (max-width: 768px) { .lfg-grid { grid-template-columns: 1fr; } }
+        .message-actions { opacity: 0; transition: opacity 0.15s; }
+        .message-item:hover .message-actions { opacity: 1; }
+        .compact-friend { padding: 10px 15px !important; }
+        .compact-friend img { width: 40px !important; height: 40px !important; }
+        .dropdown-menu { position: absolute; top: 100%; right: 0; background: #1e1e2a; border-radius: 12px; padding: 8px; min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); border: 1px solid rgba(76,0,255,0.3); }
+        .dropdown-menu button { width: 100%; text-align: left; background: none; border: none; padding: 8px 12px; color: white; cursor: pointer; border-radius: 8px; font-size: 13px; }
+        .dropdown-menu button:hover { background: rgba(76,0,255,0.2); }
+        .dropdown-menu button.danger { color: #ff5555; }
+        .status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 20px; background: rgba(0,0,0,0.3); }
+        .inventory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; max-height: 500px; overflow-y: auto; padding: 4px; }
+        .inventory-item { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 10px; text-align: center; transition: all 0.2s; border: 1px solid rgba(76,0,255,0.2); cursor: pointer; }
+        .inventory-item:hover { transform: translateY(-2px); border-color: var(--primary); background: rgba(76,0,255,0.1); }
+        .inventory-item img { width: 80px; height: 80px; object-fit: contain; margin: 0 auto 6px; border-radius: 8px; }
+        .inventory-item-name { font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .inventory-item-rarity { font-size: 9px; padding: 2px 8px; border-radius: 20px; display: inline-block; }
+        .rarity-consumer { background: rgba(98,98,98,0.3); color: #b0b0b0; }
+        .rarity-industrial { background: rgba(94,130,142,0.3); color: #5e828e; }
+        .rarity-mil-spec { background: rgba(74,109,77,0.3); color: #4a6d4d; }
+        .rarity-restricted { background: rgba(55,106,128,0.3); color: #376a80; }
+        .rarity-classified { background: rgba(122,85,170,0.3); color: #7a55aa; }
+        .rarity-covert { background: rgba(203,85,58,0.3); color: #cb553a; }
+        .rarity-contraband { background: rgba(255,215,0,0.2); color: #ffd700; }
+        .lfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 24px; margin: 30px 0; }
+        .tournaments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; margin: 30px 0; }
+        @media (max-width: 768px) { .lfg-grid, .tournaments-grid { grid-template-columns: 1fr; } .inventory-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); } }
+        
+        /* Кастомные селекты */
+        .custom-select { position: relative; width: 100%; }
+        .custom-select-trigger { background: rgba(255,255,255,0.05); border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+        .custom-select-trigger:hover { border-color: var(--primary); }
+        .custom-select-trigger.open { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(76,0,255,0.2); }
+        .custom-select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #1a1a24; border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; margin-top: 5px; z-index: 100; max-height: 250px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .custom-select-option { padding: 12px 18px; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 10px; }
+        .custom-select-option:hover { background: rgba(76,0,255,0.15); }
+        .custom-select-option.selected { background: rgba(76,0,255,0.3); color: var(--primary-light); }
+        .faceit-level-img { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; }
+        
+        /* Блок с расписанием по дням */
+        .weekday-schedule { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+        .weekday-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .weekday-name { width: 100px; font-weight: 600; color: var(--primary-light); }
+        .weekday-input { flex: 1; min-width: 150px; background: rgba(255,255,255,0.05); border: 1px solid rgba(76,0,255,0.3); border-radius: 10px; padding: 10px 14px; color: white; }
+        .weekday-input:focus { outline: none; border-color: var(--primary); }
+        .char-counter { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 4px; }
+        .char-counter.warning { color: #ff9800; }
+        .char-counter.danger { color: #f44336; }
     </style>
 </head>
 <body>
@@ -88,6 +113,20 @@
             catch(e) { return ''; }
         }
         
+        function formatRelativeTime(dateStr) {
+            try {
+                const date = new Date(dateStr);
+                const now = new Date();
+                const diffMins = Math.floor((now - date) / 60000);
+                const diffHours = Math.floor(diffMins / 60);
+                const diffDays = Math.floor(diffHours / 24);
+                if (diffMins < 1) return 'только что';
+                if (diffMins < 60) return `${diffMins} мин назад`;
+                if (diffHours < 24) return `${diffHours} ч назад`;
+                return `${diffDays} д назад`;
+            } catch(e) { return ''; }
+        }
+        
         // ==================== ХУК АВТОРИЗАЦИИ ====================
         function useAuth() {
             const [user, setUser] = React.useState(null);
@@ -97,6 +136,40 @@
             }, []);
             const logout = () => { api.post('/auth/logout').then(() => { setUser(null); window.location.href = '/'; }); };
             return { user, loading, logout, refetch: () => api.get('/auth/me').then(res => setUser(res.data.data)) };
+        }
+        
+        // ==================== КОМПОНЕНТ КАСТОМНОГО СЕЛЕКТА ====================
+        function CustomSelect({ options, value, onChange, placeholder, renderOption }) {
+            const [isOpen, setIsOpen] = React.useState(false);
+            const triggerRef = React.useRef(null);
+            const dropdownRef = React.useRef(null);
+            
+            React.useEffect(() => {
+                const handleClickOutside = (e) => {
+                    if (triggerRef.current && !triggerRef.current.contains(e.target) &&
+                        dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                        setIsOpen(false);
+                    }
+                };
+                document.addEventListener('click', handleClickOutside);
+                return () => document.removeEventListener('click', handleClickOutside);
+            }, []);
+            
+            const selectedOption = options.find(opt => opt.value === value);
+            
+            return React.createElement('div', { className: 'custom-select', ref: triggerRef },
+                React.createElement('div', { className: `custom-select-trigger ${isOpen ? 'open' : ''}`, onClick: () => setIsOpen(!isOpen) },
+                    React.createElement('span', null, selectedOption ? (renderOption ? renderOption(selectedOption) : selectedOption.label) : placeholder || 'Выберите...'),
+                    React.createElement('i', { className: `fas fa-chevron-${isOpen ? 'up' : 'down'}` })
+                ),
+                isOpen && React.createElement('div', { className: 'custom-select-dropdown', ref: dropdownRef },
+                    options.map(opt => React.createElement('div', { 
+                        key: opt.value, 
+                        className: `custom-select-option ${value === opt.value ? 'selected' : ''}`,
+                        onClick: () => { onChange(opt.value); setIsOpen(false); }
+                    }, renderOption ? renderOption(opt) : opt.label))
+                )
+            );
         }
         
         // ==================== КОМПОНЕНТЫ ====================
@@ -134,23 +207,18 @@
             const { user } = useAuth();
             const [unreadCount, setUnreadCount] = React.useState(0);
             const [balance, setBalance] = React.useState(0);
-            const [notificationCount, setNotificationCount] = React.useState(0);
-            
             React.useEffect(() => {
                 if (user) {
                     api.get('/messages/unread/count').then(res => setUnreadCount(res.data.count || 0)).catch(console.error);
                     api.get('/balance').then(res => setBalance(res.data.balance || 0)).catch(console.error);
-                    api.get('/lfg/responses/unread').then(res => setNotificationCount(res.data.count || 0)).catch(console.error);
                     const interval = setInterval(() => {
                         api.get('/messages/unread/count').then(res => setUnreadCount(res.data.count || 0)).catch(console.error);
-                        api.get('/lfg/responses/unread').then(res => setNotificationCount(res.data.count || 0)).catch(console.error);
+                        api.get('/balance').then(res => setBalance(res.data.balance || 0)).catch(console.error);
                     }, 10000);
                     return () => clearInterval(interval);
                 }
             }, [user]);
-            
             const isActive = (path) => currentPage === path ? 'active' : '';
-            
             return React.createElement('header', { className: 'header' },
                 React.createElement('div', { className: 'header-content' },
                     React.createElement('div', { className: 'flex', style: { gap: '20px', alignItems: 'center' } },
@@ -159,8 +227,8 @@
                     ),
                     React.createElement('div', { className: 'nav' },
                         React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/'); }, className: `nav-link ${isActive('/')}` }, React.createElement('i', { className: 'fas fa-home' }), ' Главная'),
-                        React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/lfg'); }, className: `nav-link ${isActive('/lfg')}` }, React.createElement('i', { className: 'fas fa-users' }), ' Поиск команды', notificationCount > 0 && React.createElement('span', { style: { background: '#f44336', borderRadius: '10px', padding: '2px 6px', fontSize: '10px', marginLeft: '5px' } }, notificationCount)),
-                        React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/completed'); }, className: `nav-link ${isActive('/completed')}` }, React.createElement('i', { className: 'fas fa-check-circle' }), ' Успешные анкеты'),
+                        React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/lfg'); }, className: `nav-link ${isActive('/lfg')}` }, React.createElement('i', { className: 'fas fa-users' }), ' Поиск тиммейтов'),
+                        React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/tournaments'); }, className: `nav-link ${isActive('/tournaments')}` }, React.createElement('i', { className: 'fas fa-trophy' }), ' Турниры'),
                         React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/friends'); }, className: `nav-link ${isActive('/friends')}` }, React.createElement('i', { className: 'fas fa-user-friends' }), ' Друзья', unreadCount > 0 && React.createElement('span', { style: { background: '#f44336', borderRadius: '10px', padding: '2px 6px', fontSize: '10px', marginLeft: '5px' } }, unreadCount)),
                         user?.isAdmin && React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/admin'); }, className: `nav-link ${isActive('/admin')}` }, React.createElement('i', { className: 'fas fa-shield-alt' }), ' Админ'),
                         user ? React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate(`/profile/${user.steamId}`); }, className: 'profile-btn' },
@@ -184,174 +252,310 @@
             React.useEffect(() => {
                 api.get('/stats').then(res => setStats(res.data)).catch(console.error);
             }, []);
-            
+            const servers = [
+                { name: 'BARSIDE DM #1', mode: 'Deathmatch', ip: 'connect 62.122.214.244:27015', map: 'de_dust2' },
+                { name: 'BARSIDE 5x5 #1', mode: 'Competitive', ip: 'connect 45.92.38.55:28031', map: 'de_mirage' },
+                { name: 'BARSIDE 2x2 #1', mode: 'Wingman', ip: 'connect 91.103.255.168:28029', map: 'de_inferno' }
+            ];
             return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { textAlign: 'center', padding: '60px 20px', background: 'linear-gradient(135deg, rgba(76,0,255,0.1), rgba(255,61,0,0.05))', borderRadius: '24px', marginBottom: '40px' } },
                     React.createElement('h1', { style: { fontSize: '48px', marginBottom: '20px', fontWeight: '800' } }, 'BARSIDE ', React.createElement('span', { style: { background: 'linear-gradient(135deg, #4caf50, #8bc34a)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' } }, 'CS2')),
-                    React.createElement('p', { className: 'text-gray', style: { fontSize: '18px', marginBottom: '30px' } }, 'Найди команду, участвуй в турнирах и становись лучшим!'),
+                    React.createElement('p', { className: 'text-gray', style: { fontSize: '18px', marginBottom: '30px' } }, 'Лучшие турниры, серверы и сообщество для настоящих фанатов Counter-Strike 2'),
                     React.createElement('div', { className: 'flex', style: { justifyContent: 'center', gap: '15px' } },
-                        React.createElement('button', { onClick: () => navigate('/lfg'), className: 'btn btn-primary', style: { padding: '14px 32px' } }, React.createElement('i', { className: 'fas fa-search' }), ' Найти команду'),
-                        React.createElement('button', { onClick: () => navigate('/completed'), className: 'btn btn-outline', style: { padding: '14px 32px' } }, React.createElement('i', { className: 'fas fa-trophy' }), ' Успешные анкеты')
+                        React.createElement('button', { onClick: () => navigate('/tournaments'), className: 'btn btn-primary', style: { padding: '12px 28px' } }, React.createElement('i', { className: 'fas fa-trophy' }), ' Турниры'),
+                        React.createElement('button', { onClick: () => navigate('/lfg'), className: 'btn btn-outline', style: { padding: '12px 28px' } }, React.createElement('i', { className: 'fas fa-users' }), ' Найти команду')
                     )
                 ),
                 React.createElement('div', { className: 'stats-grid' },
                     React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-users', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, stats.totalUsers || '0'), React.createElement('div', { className: 'stat-label' }, 'Игроков')),
-                    React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-file-alt', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, stats.totalLfgPosts || '0'), React.createElement('div', { className: 'stat-label' }, 'Активных анкет')),
-                    React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-check-circle', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, '0'), React.createElement('div', { className: 'stat-label' }, 'Собранных команд')),
+                    React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-file-alt', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, stats.totalLfgPosts || '0'), React.createElement('div', { className: 'stat-label' }, 'Анкет')),
+                    React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-trophy', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, stats.totalTournaments || '0'), React.createElement('div', { className: 'stat-label' }, 'Турниров')),
                     React.createElement('div', { className: 'stat-card' }, React.createElement('i', { className: 'fas fa-server', style: { fontSize: '32px', marginBottom: '10px' } }), React.createElement('div', { className: 'stat-number' }, '8'), React.createElement('div', { className: 'stat-label' }, 'Серверов'))
+                ),
+                React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
+                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, '🎮 Игровые серверы'),
+                    React.createElement('div', { style: { display: 'grid', gap: '15px' } }, servers.map(s => React.createElement('div', { key: s.name, className: 'flex', style: { justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' } },
+                        React.createElement('div', null, React.createElement('strong', null, s.name), React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, s.mode, ' • ', s.map)),
+                        React.createElement('button', { onClick: () => window.open(s.ip.replace('connect ', 'steam://connect/')), className: 'btn btn-primary', style: { padding: '6px 12px', fontSize: '12px' } }, 'Играть')
+                    )))
+                ),
+                React.createElement('div', { className: 'card', style: { textAlign: 'center' } },
+                    React.createElement('h2', { className: 'text-green' }, 'Готов к соревнованиям?'),
+                    React.createElement('p', { className: 'text-gray', style: { marginBottom: '20px' } }, 'Присоединяйся к турнирам, находи тиммейтов и повышай свой скилл'),
+                    React.createElement('div', { className: 'flex', style: { justifyContent: 'center', gap: '15px' } },
+                        user && React.createElement('button', { onClick: () => navigate('/tournaments'), className: 'btn btn-primary' }, '🏆 Участвовать'),
+                        !user && React.createElement(AuthButton, null)
+                    )
                 )
             );
         }
         
-        // ==================== НОВАЯ СТРАНИЦА LFG С ОТКЛИКАМИ ====================
+        // ==================== СТРАНИЦА ПРОФИЛЯ ====================
+        function ProfilePage({ steamId, navigate }) {
+            const { user: currentUser, refetch, logout } = useAuth();
+            const [profile, setProfile] = React.useState(null);
+            const [userFriends, setUserFriends] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [editing, setEditing] = React.useState(false);
+            const [formData, setFormData] = React.useState({});
+            const [balance, setBalance] = React.useState(0);
+            const [showTopup, setShowTopup] = React.useState(false);
+            const [topupAmount, setTopupAmount] = React.useState(500);
+            const [showSettings, setShowSettings] = React.useState(false);
+            const [settings, setSettings] = React.useState({ status: 'online', emailNotifications: true });
+            const [inventory, setInventory] = React.useState({ items: [], total: 0, loading: false });
+            const [isFriend, setIsFriend] = React.useState(false);
+            const [friendRequestSent, setFriendRequestSent] = React.useState(false);
+            
+            const isAdmin = currentUser?.isAdmin === true;
+            const isOwnProfile = currentUser?.steamId === steamId;
+            
+            React.useEffect(() => {
+                setLoading(true);
+                api.get(`/profile/${steamId}`).then(res => {
+                    setProfile(res.data.user);
+                    setFormData({ displayName: res.data.user.displayName || '', region: res.data.user.region || 'RU', role: res.data.user.role || 'RIFLER', hasMic: res.data.user.hasMic || false, bio: res.data.user.bio || '' });
+                    setLoading(false);
+                }).catch(() => setLoading(false));
+                if (isOwnProfile) api.get('/balance').then(res => setBalance(res.data.balance)).catch(console.error);
+                api.get(`/user/${steamId}/friends`).then(res => setUserFriends(res.data.data || [])).catch(console.error);
+            }, [steamId, isOwnProfile]);
+            
+            React.useEffect(() => {
+                if (currentUser && !isOwnProfile && profile?.id) {
+                    api.get('/friends').then(res => { const friends = res.data.data || []; setIsFriend(friends.some(f => f.id === profile.id)); }).catch(console.error);
+                    api.get('/friends/requests/sent').then(res => { const sentRequests = res.data.data || []; setFriendRequestSent(sentRequests.some(r => r.to_id === profile.id)); }).catch(console.error);
+                }
+            }, [currentUser, isOwnProfile, profile?.id]);
+            
+            React.useEffect(() => {
+                if (profile?.steamId) {
+                    setInventory({ items: [], total: 0, loading: true });
+                    api.get(`/inventory/${profile.steamId}`).then(res => {
+                        if (res.data.success) { setInventory({ items: res.data.items || [], total: res.data.total || 0, loading: false }); } 
+                        else { setInventory({ items: [], total: 0, loading: false }); }
+                    }).catch(() => setInventory({ items: [], total: 0, loading: false }));
+                }
+            }, [profile]);
+            
+            const handleUpdate = async () => {
+                try { await api.put(`/profile/${steamId}`, formData); const res = await api.get(`/profile/${steamId}`); setProfile(res.data.user); setEditing(false); refetch(); showToast('Профиль обновлён', 'success'); } 
+                catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            const handleAdminUpdate = async (field, value) => {
+                try { const updateData = { ...formData, [field]: value }; await api.put(`/profile/${steamId}`, updateData); const res = await api.get(`/profile/${steamId}`); setProfile(res.data.user); showToast('Обновлено', 'success'); if (isOwnProfile && field === 'balance') setBalance(value); } 
+                catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            const handleTopup = async () => {
+                try { await api.post('/balance/topup', { amount: topupAmount }); const res = await api.get('/balance'); setBalance(res.data.balance); setShowTopup(false); showToast(`Пополнено на ${topupAmount} ₽`, 'success'); } 
+                catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            const handleAddFriend = async () => {
+                if (!profile?.id) return;
+                try { await api.post(`/friends/request/${profile.id}`); showToast('Заявка отправлена', 'success'); setFriendRequestSent(true); } 
+                catch (err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
+            };
+            
+            const handleRemoveFriend = async () => {
+                if (!profile?.id) return;
+                if (await customConfirm('Удалить из друзей?')) {
+                    try { await api.delete(`/friends/${profile.id}`); setIsFriend(false); setUserFriends(userFriends.filter(f => f.id !== profile.id)); showToast('Удалён из друзей', 'success'); } 
+                    catch (err) { showToast('Ошибка', 'error'); }
+                }
+            };
+            
+            const updateStatus = async (status) => {
+                try { await api.post('/settings/status', { status }); setSettings({ ...settings, status }); showToast('Статус обновлён', 'success'); } 
+                catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            if (!profile) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Пользователь не найден');
+            
+            const getStatusDisplay = () => {
+                const status = profile.status || 'offline';
+                if (status === 'online') return React.createElement('span', { className: 'status-online' }, '🟢 В сети');
+                if (status === 'dnd') return React.createElement('span', { className: 'status-dnd' }, '🔴 Не беспокоить');
+                return React.createElement('span', { className: 'status-offline' }, '⚫ Был(а) ' + formatRelativeTime(profile.lastSeen || profile.createdAt));
+            };
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('div', { className: 'card' },
+                    React.createElement('div', { className: 'profile-header', style: { flexWrap: 'wrap' } },
+                        React.createElement('img', { src: profile.steamAvatar, className: 'profile-avatar' }),
+                        React.createElement('div', { style: { flex: 1 } },
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, React.createElement('h1', null, profile.displayName || profile.steamNickname), getStatusDisplay()),
+                            React.createElement('p', { className: 'text-gray' }, React.createElement('i', { className: 'fab fa-steam' }), ' ', profile.steamNickname),
+                            React.createElement('p', { className: 'text-muted', style: { fontSize: '11px' } }, `ID: ${profile.id} | На сайте с: ${new Date(profile.createdAt).toLocaleDateString('ru-RU')}`),
+                            profile.isBanned && React.createElement('p', { style: { color: '#f44336' } }, '⚠️ Пользователь забанен'),
+                            React.createElement('div', { className: 'flex', style: { marginTop: '10px', gap: '10px' } },
+                                React.createElement('span', { className: 'text-green' }, profile.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'),
+                                React.createElement('span', { className: 'text-green' }, profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'),
+                                profile.hasMic && React.createElement('span', { className: 'text-green' }, '🎤 Микрофон')
+                            )
+                        ),
+                        React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px' } },
+                            !isOwnProfile && !isFriend && !friendRequestSent && React.createElement('button', { onClick: handleAddFriend, className: 'btn btn-primary' }, React.createElement('i', { className: 'fas fa-user-plus' }), ' Добавить'),
+                            !isOwnProfile && isFriend && React.createElement('button', { onClick: handleRemoveFriend, className: 'btn', style: { background: '#f44336' } }, React.createElement('i', { className: 'fas fa-user-minus' }), ' Удалить'),
+                            !isOwnProfile && friendRequestSent && !isFriend && React.createElement('button', { className: 'btn', disabled: true, style: { background: '#555' } }, '⏳ Заявка отправлена'),
+                            isOwnProfile && React.createElement(React.Fragment, null,
+                                React.createElement('div', { className: 'balance' }, `💰 ${balance} ₽`),
+                                React.createElement('button', { onClick: () => setShowTopup(true), className: 'btn btn-primary' }, 'Пополнить'),
+                                React.createElement('button', { onClick: () => setEditing(!editing), className: 'btn btn-outline' }, editing ? 'Отмена' : 'Редактировать'),
+                                React.createElement('button', { onClick: () => setShowSettings(true), className: 'btn btn-outline' }, React.createElement('i', { className: 'fas fa-cog' }), ' Настройки'),
+                                React.createElement('button', { onClick: logout, className: 'btn', style: { background: '#f44336' } }, React.createElement('i', { className: 'fas fa-sign-out-alt' }), ' Выйти')
+                            )
+                        )
+                    ),
+                    profile.bio && React.createElement('div', { style: { marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #333' } }, React.createElement('h3', { className: 'text-green' }, 'О себе'), React.createElement('p', { className: 'text-gray' }, profile.bio))
+                ),
+                
+                userFriends.length > 0 && React.createElement('div', { className: 'card', style: { marginTop: '20px' } },
+                    React.createElement('h3', { className: 'text-green' }, '👥 Друзья пользователя'),
+                    React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' } }, userFriends.slice(0, 12).map(f => React.createElement('div', { key: f.id, onClick: () => navigate(`/profile/${f.steamId}`), style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '5px 12px', borderRadius: '20px' } }, React.createElement('img', { src: f.steamAvatar, style: { width: '24px', height: '24px', borderRadius: '50%' } }), React.createElement('span', { style: { fontSize: '13px' } }, f.displayName || f.steamNickname)))),
+                    userFriends.length > 12 && React.createElement('p', { className: 'text-muted', style: { fontSize: '11px', marginTop: '10px' } }, `и ещё ${userFriends.length - 12} друзей`)
+                ),
+                
+                editing && React.createElement('div', { className: 'card', style: { marginTop: '20px' } },
+                    React.createElement('h2', { className: 'text-green' }, 'Редактировать профиль'),
+                    React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Ник'), React.createElement('input', { className: 'form-input', value: formData.displayName, onChange: (e) => setFormData({ ...formData, displayName: e.target.value }) })),
+                    React.createElement('div', { className: 'grid-2' },
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Регион'), React.createElement('select', { className: 'form-input', value: formData.region, onChange: (e) => setFormData({ ...formData, region: e.target.value }) }, React.createElement('option', { value: 'RU' }, 'Россия'), React.createElement('option', { value: 'EU' }, 'Европа'), React.createElement('option', { value: 'NA' }, 'США'))),
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Роль'), React.createElement('select', { className: 'form-input', value: formData.role, onChange: (e) => setFormData({ ...formData, role: e.target.value }) }, React.createElement('option', { value: 'RIFLER' }, 'Рифлер'), React.createElement('option', { value: 'AWP' }, 'AWP'), React.createElement('option', { value: 'IGL' }, 'IGL'), React.createElement('option', { value: 'SUPPORT' }, 'Саппорт')))
+                    ),
+                    React.createElement('div', { className: 'form-group' }, React.createElement('label', null, React.createElement('input', { type: 'checkbox', checked: formData.hasMic, onChange: (e) => setFormData({ ...formData, hasMic: e.target.checked }) }), ' Есть микрофон')),
+                    React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'О себе'), React.createElement('textarea', { className: 'form-input', value: formData.bio, onChange: (e) => setFormData({ ...formData, bio: e.target.value }), rows: 3 })),
+                    isAdmin && React.createElement('div', { style: { marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(76,0,255,0.2)' } },
+                        React.createElement('h3', { className: 'text-green' }, 'Админ панель'),
+                        React.createElement('div', { className: 'grid-2' },
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Баланс'), React.createElement('input', { type: 'number', className: 'form-input', value: profile.balance, onChange: (e) => handleAdminUpdate('balance', parseInt(e.target.value)) })),
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Админ'), React.createElement('select', { className: 'form-input', value: profile.isAdmin ? 'true' : 'false', onChange: (e) => handleAdminUpdate('isAdmin', e.target.value === 'true') }, React.createElement('option', { value: 'false' }, 'Нет'), React.createElement('option', { value: 'true' }, 'Да'))),
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Бан'), React.createElement('select', { className: 'form-input', value: profile.isBanned ? 'true' : 'false', onChange: (e) => handleAdminUpdate('isBanned', e.target.value === 'true') }, React.createElement('option', { value: 'false' }, 'Активен'), React.createElement('option', { value: 'true' }, 'Забанен')))
+                        )
+                    ),
+                    React.createElement('button', { onClick: handleUpdate, className: 'btn btn-primary', style: { marginTop: '15px' } }, 'Сохранить')
+                ),
+                
+                React.createElement('div', { className: 'inventory-section', style: { marginTop: '30px' } },
+                    React.createElement('div', { className: 'inventory-header' }, React.createElement('h3', { className: 'text-green' }, React.createElement('i', { className: 'fas fa-box' }), ' CS2 Инвентарь'), React.createElement('div', { className: 'inventory-stats' }, React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '🎒 Всего:'), React.createElement('span', null, inventory.total)), React.createElement('div', { className: 'inventory-stat' }, React.createElement('span', null, '💎 Уникальных:'), React.createElement('span', null, inventory.items.length)))),
+                    inventory.loading ? React.createElement('div', { className: 'text-center', style: { padding: '40px' } }, React.createElement('i', { className: 'fas fa-spinner fa-spin' }), React.createElement('p', { className: 'text-gray' }, 'Загрузка...')) :
+                    inventory.total === 0 ? React.createElement('div', { className: 'card', style: { textAlign: 'center', padding: '40px' } }, React.createElement('i', { className: 'fas fa-lock', style: { fontSize: '48px' } }), React.createElement('p', { className: 'text-gray' }, 'Инвентарь приватный')) :
+                    React.createElement('div', { className: 'inventory-grid' }, inventory.items.slice(0, 48).map(item => {
+                        const rarityClass = { 'Consumer': 'rarity-consumer', 'Industrial': 'rarity-industrial', 'Mil-Spec': 'rarity-mil-spec', 'Restricted': 'rarity-restricted', 'Classified': 'rarity-classified', 'Covert': 'rarity-covert', 'Contraband': 'rarity-contraband' }[item.rarity] || 'rarity-consumer';
+                        return React.createElement('div', { key: item.assetid, className: 'inventory-item' }, item.icon && React.createElement('img', { src: item.icon }), React.createElement('div', { className: 'inventory-item-name' }, item.name.length > 25 ? item.name.substring(0, 22) + '...' : item.name), React.createElement('span', { className: `inventory-item-rarity ${rarityClass}` }, item.rarity));
+                    }))
+                ),
+                
+                showSettings && React.createElement('div', { className: 'modal-overlay', onClick: () => setShowSettings(false) },
+                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation() },
+                        React.createElement('div', { className: 'modal-header' }, React.createElement('h2', null, 'Настройки'), React.createElement('button', { className: 'modal-close', onClick: () => setShowSettings(false) }, '✕')),
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Статус'), React.createElement('select', { className: 'form-input', value: settings.status, onChange: (e) => updateStatus(e.target.value) }, React.createElement('option', { value: 'online' }, '🟢 В сети'), React.createElement('option', { value: 'offline' }, '⚫ Не в сети'), React.createElement('option', { value: 'dnd' }, '🔴 Не беспокоить'))),
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, React.createElement('input', { type: 'checkbox', checked: settings.emailNotifications, onChange: (e) => setSettings({ ...settings, emailNotifications: e.target.checked }) }), ' Email уведомления')),
+                        React.createElement('div', { className: 'form-group', style: { borderTop: '1px solid rgba(76,0,255,0.2)', paddingTop: '20px' } }, React.createElement('button', { onClick: logout, className: 'btn btn-danger', style: { width: '100%' } }, 'Выйти'))
+                    )
+                ),
+                
+                showTopup && React.createElement('div', { className: 'modal-overlay', onClick: () => setShowTopup(false) },
+                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation() },
+                        React.createElement('div', { className: 'modal-header' }, React.createElement('h2', { className: 'text-green' }, 'Пополнение'), React.createElement('button', { className: 'modal-close', onClick: () => setShowTopup(false) }, '✕')),
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Сумма (₽)'), React.createElement('input', { type: 'number', className: 'form-input', value: topupAmount, onChange: (e) => setTopupAmount(parseInt(e.target.value)), min: 100 })),
+                        React.createElement('div', { className: 'flex', style: { justifyContent: 'flex-end', gap: '12px', marginTop: '20px' } }, React.createElement('button', { onClick: () => setShowTopup(false), className: 'btn', style: { background: '#555' } }, 'Отмена'), React.createElement('button', { onClick: handleTopup, className: 'btn btn-primary' }, 'Пополнить'))
+                    )
+                )
+            );
+        }
+        
+        // ==================== СТРАНИЦА LFG ====================
         function LfgPage({ navigate }) {
             const { user } = useAuth();
             const [posts, setPosts] = React.useState([]);
-            const [completedPosts, setCompletedPosts] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
             const [showForm, setShowForm] = React.useState(false);
             const [showRules, setShowRules] = React.useState(false);
             const [dontShowRules, setDontShowRules] = React.useState(false);
-            const [responses, setResponses] = React.useState([]);
-            const [showResponses, setShowResponses] = React.useState(null);
-            const [selectedResponse, setSelectedResponse] = React.useState(null);
-            const [reviewData, setReviewData] = React.useState({ rating: 0, comment: '' });
-            const [formData, setFormData] = React.useState({
-                title: '', region: 'RU', myRole: 'RIFLER', scheduleType: 'daily', schedule: '20:00',
-                weekSchedule: { monday: false, tuesday: false, wednesday: false, thursday: false, friday: false, saturday: false, sunday: false },
-                playersNeeded: 4, rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
-                minFaceitLevel: 1, minPremierRank: 0, description: ''
+            const [scheduleType, setScheduleType] = React.useState('daily'); // 'daily' or 'weekly'
+            const [dailySchedule, setDailySchedule] = React.useState('');
+            const [weekSchedule, setWeekSchedule] = React.useState({
+                monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: ''
             });
+            const [formData, setFormData] = React.useState({
+                title: '', region: 'RU', myRole: 'RIFLER', playersNeeded: 1, rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
+                minFaceitLevel: 1, minPremierRank: 0, description: '', language: 'ru'
+            });
+            const [charCount, setCharCount] = React.useState({ daily: 0, weekly: { monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0, saturday: 0, sunday: 0 } });
             
-            const rolesList = [
-                { key: 'IGL', name: '👑 IGL', color: '#ffd700' },
-                { key: 'AWP', name: '🔫 AWP', color: '#4caf50' },
-                { key: 'ENTRY', name: '⚡ ENTRY', color: '#ff9800' },
-                { key: 'RIFLER', name: '🎯 RIFLER', color: '#2196f3' },
-                { key: 'LURKER', name: '👤 LURKER', color: '#9c27b0' }
+            const rolesList = [{ key: 'IGL', name: 'IGL', color: '#ffd700' }, { key: 'AWP', name: 'AWP', color: '#4caf50' }, { key: 'ENTRY', name: 'ENTRY', color: '#ff9800' }, { key: 'RIFLER', name: 'RIFLER', color: '#2196f3' }, { key: 'LURKER', name: 'LURKER', color: '#9c27b0' }];
+            
+            const regionOptions = [
+                { value: 'RU', label: '🇷🇺 Россия' }, { value: 'EU', label: '🇪🇺 Европа' }, 
+                { value: 'NA', label: '🇺🇸 Северная Америка' }, { value: 'ASIA', label: '🌏 Азия' }
             ];
             
-            const weekdays = [
-                { key: 'monday', name: 'ПН' }, { key: 'tuesday', name: 'ВТ' }, { key: 'wednesday', name: 'СР' },
-                { key: 'thursday', name: 'ЧТ' }, { key: 'friday', name: 'ПТ' }, { key: 'saturday', name: 'СБ' }, { key: 'sunday', name: 'ВС' }
+            const languageOptions = [
+                { value: 'ru', label: '🇷🇺 Русский' }, { value: 'en', label: '🇬🇧 English' }, 
+                { value: 'de', label: '🇩🇪 Deutsch' }, { value: 'fr', label: '🇫🇷 Français' }, 
+                { value: 'es', label: '🇪🇸 Español' }, { value: 'tr', label: '🇹🇷 Türkçe' }, 
+                { value: 'pl', label: '🇵🇱 Polski' }, { value: 'ua', label: '🇺🇦 Українська' }
             ];
+            
+            const faceitLevels = [1,2,3,4,5,6,7,8,9,10].map(l => ({ value: l, label: `${l} уровень`, icon: `https://cdn.faceit.com/faceit-logo.svg` }));
+            const premierRanks = [0,5000,10000,15000,20000,25000,30000].map(r => ({ value: r, label: r === 0 ? 'Не важно' : `${r}+` }));
             
             const fetchPosts = async () => {
                 setLoading(true);
-                try {
-                    const [activeRes, completedRes] = await Promise.all([
-                        api.get('/lfg/active'),
-                        api.get('/lfg/completed')
-                    ]);
-                    setPosts(activeRes.data.data || []);
-                    setCompletedPosts(completedRes.data.data || []);
-                } catch (err) { showToast('Ошибка загрузки', 'error'); }
+                try { const res = await api.get('/lfg'); setPosts(res.data.data || []); } catch (err) { showToast('Ошибка загрузки', 'error'); }
                 finally { setLoading(false); }
             };
-            
-            const fetchResponses = async (postId) => {
-                try {
-                    const res = await api.get(`/lfg/${postId}/responses`);
-                    setResponses(res.data.data || []);
-                } catch (err) { showToast('Ошибка загрузки откликов', 'error'); }
-            };
-            
             React.useEffect(() => { fetchPosts(); }, []);
             
             const checkRules = () => {
                 const saved = localStorage.getItem('dontShowLFGRules');
-                if (saved === 'true') {
-                    setShowForm(true);
-                } else {
-                    setShowRules(true);
+                if (saved === 'true') { setShowForm(true); } else { setShowRules(true); }
+            };
+            
+            const updateCharCount = (text, type, day = null) => {
+                if (type === 'daily') {
+                    setDailySchedule(text);
+                    setCharCount(prev => ({ ...prev, daily: text.length }));
+                } else if (day) {
+                    setWeekSchedule(prev => ({ ...prev, [day]: text }));
+                    setCharCount(prev => ({ ...prev, weekly: { ...prev.weekly, [day]: text.length } }));
                 }
+            };
+            
+            const getScheduleForSubmit = () => {
+                if (scheduleType === 'daily') return { type: 'daily', schedule: dailySchedule, weekSchedule: null };
+                return { type: 'weekly', schedule: JSON.stringify(weekSchedule), weekSchedule: weekSchedule };
             };
             
             const handleSubmit = async (e) => {
                 e.preventDefault();
+                if (!formData.title.trim()) { showToast('Введите заголовок', 'error'); return; }
+                if (scheduleType === 'daily' && !dailySchedule.trim()) { showToast('Введите расписание', 'error'); return; }
+                if (scheduleType === 'weekly') {
+                    const hasAny = Object.values(weekSchedule).some(v => v.trim());
+                    if (!hasAny) { showToast('Заполните расписание хотя бы для одного дня', 'error'); return; }
+                }
                 const selectedRoles = Object.keys(formData.rolesNeeded).filter(k => formData.rolesNeeded[k]);
                 if (selectedRoles.length === 0) { showToast('Выберите нужные роли', 'error'); return; }
-                if (!formData.title.trim()) { showToast('Введите заголовок', 'error'); return; }
                 
-                try {
-                    await api.post('/lfg', formData);
-                    setShowForm(false);
-                    setFormData({
-                        title: '', region: 'RU', myRole: 'RIFLER', scheduleType: 'daily', schedule: '20:00',
-                        weekSchedule: { monday: false, tuesday: false, wednesday: false, thursday: false, friday: false, saturday: false, sunday: false },
-                        playersNeeded: 4, rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
-                        minFaceitLevel: 1, minPremierRank: 0, description: ''
-                    });
-                    fetchPosts();
-                    showToast('Анкета создана!', 'success');
-                } catch (err) { showToast('Ошибка', 'error'); }
+                const scheduleData = getScheduleForSubmit();
+                const postData = {
+                    ...formData,
+                    scheduleType: scheduleData.type,
+                    schedule: scheduleData.schedule,
+                    weekSchedule: scheduleData.weekSchedule
+                };
+                try { await api.post('/lfg', postData); setShowForm(false); setDailySchedule(''); setWeekSchedule({ monday: '', tuesday: '', wednesday: '', thursday: '', friday: '', saturday: '', sunday: '' }); setFormData({ title: '', region: 'RU', myRole: 'RIFLER', playersNeeded: 1, rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false }, minFaceitLevel: 1, minPremierRank: 0, description: '', language: 'ru' }); fetchPosts(); showToast('Анкета создана', 'success'); } 
+                catch (err) { showToast('Ошибка', 'error'); }
             };
             
-            const handleRespond = async (postId, selectedRole) => {
-                try {
-                    await api.post(`/lfg/${postId}/respond`, { role: selectedRole });
-                    fetchPosts();
-                    showToast('Отклик отправлен! Создатель анкеты получит уведомление.', 'success');
-                } catch (err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
-            };
-            
-            const handleAcceptResponse = async (postId, responseId) => {
-                try {
-                    await api.post(`/lfg/${postId}/responses/${responseId}/accept`);
-                    fetchPosts();
-                    if (showResponses === postId) fetchResponses(postId);
-                    showToast('Игрок принят в команду!', 'success');
-                } catch (err) { showToast('Ошибка', 'error'); }
-            };
-            
-            const handleRejectResponse = async (postId, responseId) => {
-                try {
-                    await api.post(`/lfg/${postId}/responses/${responseId}/reject`);
-                    if (showResponses === postId) fetchResponses(postId);
-                    showToast('Отклик отклонен', 'info');
-                } catch (err) { showToast('Ошибка', 'error'); }
-            };
-            
-            const handleComplete = async (postId) => {
-                if (await customConfirm('Завершить поиск команды? После этого нельзя будет добавлять игроков.')) {
-                    try {
-                        await api.post(`/lfg/${postId}/complete`);
-                        fetchPosts();
-                        showToast('Анкета завершена!', 'success');
-                    } catch (err) { showToast('Ошибка', 'error'); }
-                }
-            };
-            
-            const handleLeaveReview = async (postId) => {
-                if (!reviewData.comment.trim() || reviewData.rating === 0) {
-                    showToast('Поставьте оценку и напишите отзыв', 'error');
-                    return;
-                }
-                try {
-                    await api.post(`/lfg/${postId}/review`, reviewData);
-                    setSelectedResponse(null);
-                    setReviewData({ rating: 0, comment: '' });
-                    fetchPosts();
-                    showToast('Отзыв добавлен!', 'success');
-                } catch (err) { showToast('Ошибка', 'error'); }
-            };
-            
+            const handleDelete = async (id) => { if (await customConfirm('Удалить анкету?')) { try { await api.delete(`/lfg/${id}`); fetchPosts(); showToast('Удалено', 'success'); } catch (err) { showToast('Ошибка', 'error'); } } };
             const toggleRole = (key) => setFormData(prev => ({ ...prev, rolesNeeded: { ...prev.rolesNeeded, [key]: !prev.rolesNeeded[key] } }));
-            const toggleWeekday = (key) => setFormData(prev => ({ ...prev, weekSchedule: { ...prev.weekSchedule, [key]: !prev.weekSchedule[key] } }));
             
-            const getRoleClass = (role) => `role-badge role-${role}`;
-            
-            const getScheduleText = (post) => {
-                if (post.scheduleType === 'weekly' && post.weekSchedule) {
-                    const days = weekdays.filter(w => post.weekSchedule[w.key]).map(w => w.name);
-                    return days.length ? `${days.join(', ')} в ${post.schedule}` : 'Расписание не указано';
-                }
-                return `Ежедневно в ${post.schedule}`;
-            };
-            
-            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
-            
-            // Модальное окно с правилами
             const RulesModal = () => React.createElement('div', { className: 'modal-overlay', onClick: () => { if (!dontShowRules) setShowRules(false); } },
                 React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation(), style: { maxWidth: '500px' } },
                     React.createElement('div', { className: 'modal-header' }, React.createElement('h2', { className: 'text-green' }, '📋 Правила создания анкеты'), React.createElement('button', { className: 'modal-close', onClick: () => setShowRules(false) }, '✕')),
@@ -359,12 +563,11 @@
                         React.createElement('p', { style: { marginBottom: '10px' } }, '1. Будьте вежливы и уважайте других игроков'),
                         React.createElement('p', { style: { marginBottom: '10px' } }, '2. Указывайте реальные требования к игрокам'),
                         React.createElement('p', { style: { marginBottom: '10px' } }, '3. Не создавайте дублирующиеся анкеты'),
-                        React.createElement('p', { style: { marginBottom: '10px' } }, '4. После формирования команды обязательно завершите анкету'),
+                        React.createElement('p', { style: { marginBottom: '10px' } }, '4. После формирования команды закройте анкету'),
                         React.createElement('p', { style: { marginBottom: '10px' } }, '5. Оставляйте отзывы о сыгранных матчах')
                     ),
                     React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' } },
-                        React.createElement('input', { type: 'checkbox', checked: dontShowRules, onChange: (e) => setDontShowRules(e.target.checked) }),
-                        'Больше не показывать это окно'
+                        React.createElement('input', { type: 'checkbox', checked: dontShowRules, onChange: (e) => setDontShowRules(e.target.checked) }), 'Больше не показывать это окно'
                     ),
                     React.createElement('button', { onClick: () => { if (dontShowRules) localStorage.setItem('dontShowLFGRules', 'true'); setShowRules(false); setShowForm(true); }, className: 'btn btn-primary', style: { width: '100%' } }, 'Ознакомился, продолжить')
                 )
@@ -372,42 +575,54 @@
             
             return React.createElement('div', { className: 'container' },
                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap' } },
-                    React.createElement('div', null, React.createElement('h1', null, '🔍 Поиск команды'), React.createElement('p', { className: 'text-gray' }, 'Найди тиммейтов и собери команду для CS2')),
+                    React.createElement('div', null, React.createElement('h1', null, '🔍 Поиск тиммейтов'), React.createElement('p', { className: 'text-gray' }, 'Найди единомышленников для игры в CS2')),
                     user && !showForm && React.createElement('button', { onClick: checkRules, className: 'btn btn-primary' }, '+ Создать анкету')
                 ),
                 
-                // Форма создания анкеты
                 showForm && React.createElement('div', { className: 'card', style: { marginBottom: '30px' } },
-                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, '📝 Создание анкеты'),
+                    React.createElement('h2', { className: 'text-green' }, '📝 Новая анкета'),
                     React.createElement('form', { onSubmit: handleSubmit },
                         React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Название анкеты *'), React.createElement('input', { className: 'form-input', value: formData.title, onChange: (e) => setFormData({ ...formData, title: e.target.value }), placeholder: 'Например: Ищу тиммейтов для игры на выходных' })),
                         
                         React.createElement('div', { className: 'grid-2' },
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Регион'), React.createElement('select', { className: 'form-input', value: formData.region, onChange: (e) => setFormData({ ...formData, region: e.target.value }) }, React.createElement('option', { value: 'RU' }, '🇷🇺 Россия'), React.createElement('option', { value: 'EU' }, '🇪🇺 Европа'), React.createElement('option', { value: 'NA' }, '🇺🇸 США'), React.createElement('option', { value: 'ASIA' }, '🌏 Азия'))),
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Моя роль *'), React.createElement('select', { className: 'form-input', value: formData.myRole, onChange: (e) => setFormData({ ...formData, myRole: e.target.value }) }, rolesList.map(r => React.createElement('option', { key: r.key, value: r.key }, r.name))))
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Регион'), React.createElement(CustomSelect, { options: regionOptions, value: formData.region, onChange: (val) => setFormData({ ...formData, region: val }), placeholder: 'Выберите регион' })),
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Язык общения'), React.createElement(CustomSelect, { options: languageOptions, value: formData.language, onChange: (val) => setFormData({ ...formData, language: val }), placeholder: 'Выберите язык' }))
                         ),
                         
+                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Моя роль *'), React.createElement(CustomSelect, { options: rolesList.map(r => ({ value: r.key, label: r.name })), value: formData.myRole, onChange: (val) => setFormData({ ...formData, myRole: val }) })),
+                        
                         React.createElement('div', { className: 'grid-2' },
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Минимальный уровень FaceIt'), React.createElement('select', { className: 'form-input', value: formData.minFaceitLevel, onChange: (e) => setFormData({ ...formData, minFaceitLevel: parseInt(e.target.value) }) }, [1,2,3,4,5,6,7,8,9,10].map(l => React.createElement('option', { key: l, value: l }, `${l} уровень`)))),
-                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Минимальный ранг Premier'), React.createElement('select', { className: 'form-input', value: formData.minPremierRank, onChange: (e) => setFormData({ ...formData, minPremierRank: parseInt(e.target.value) }) }, [0,5000,10000,15000,20000,25000,30000].map(r => React.createElement('option', { key: r, value: r }, r === 0 ? 'Не важно' : `${r}+`))))
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Минимальный уровень FaceIt'), React.createElement(CustomSelect, { options: faceitLevels, value: formData.minFaceitLevel, onChange: (val) => setFormData({ ...formData, minFaceitLevel: val }), renderOption: (opt) => React.createElement(React.Fragment, null, React.createElement('img', { src: opt.icon, className: 'faceit-level-img', style: { width: '24px' } }), ' ', opt.label) })),
+                            React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Минимальный ранг Premier'), React.createElement(CustomSelect, { options: premierRanks, value: formData.minPremierRank, onChange: (val) => setFormData({ ...formData, minPremierRank: val }) }))
                         ),
                         
                         React.createElement('div', { className: 'form-group' },
                             React.createElement('label', null, 'Расписание'),
-                            React.createElement('div', { className: 'flex', style: { gap: '10px', marginBottom: '10px' } },
-                                React.createElement('button', { type: 'button', onClick: () => setFormData({ ...formData, scheduleType: 'daily' }), className: `btn ${formData.scheduleType === 'daily' ? 'btn-primary' : 'btn-outline'}` }, 'Ежедневно'),
-                                React.createElement('button', { type: 'button', onClick: () => setFormData({ ...formData, scheduleType: 'weekly' }), className: `btn ${formData.scheduleType === 'weekly' ? 'btn-primary' : 'btn-outline'}` }, 'По дням недели')
+                            React.createElement('div', { className: 'flex', style: { gap: '10px', marginBottom: '15px' } },
+                                React.createElement('button', { type: 'button', onClick: () => setScheduleType('daily'), className: `btn ${scheduleType === 'daily' ? 'btn-primary' : 'btn-outline'}` }, 'Ежедневно'),
+                                React.createElement('button', { type: 'button', onClick: () => setScheduleType('weekly'), className: `btn ${scheduleType === 'weekly' ? 'btn-primary' : 'btn-outline'}` }, 'По дням недели')
                             ),
-                            formData.scheduleType === 'daily' ? 
-                                React.createElement('input', { type: 'time', className: 'form-input', value: formData.schedule, onChange: (e) => setFormData({ ...formData, schedule: e.target.value }) }) :
+                            scheduleType === 'daily' ? 
                                 React.createElement(React.Fragment, null,
-                                    React.createElement('div', { className: 'weekday-selector' }, weekdays.map(w => React.createElement('button', { key: w.key, type: 'button', onClick: () => toggleWeekday(w.key), className: `weekday-btn ${formData.weekSchedule[w.key] ? 'selected' : ''}` }, w.name))),
-                                    React.createElement('input', { type: 'time', className: 'form-input', style: { marginTop: '10px' }, value: formData.schedule, onChange: (e) => setFormData({ ...formData, schedule: e.target.value }) })
+                                    React.createElement('input', { className: 'form-input', value: dailySchedule, onChange: (e) => updateCharCount(e.target.value, 'daily'), placeholder: 'Например: Вечера после 20:00', maxLength: 50 }),
+                                    React.createElement('div', { className: `char-counter ${dailySchedule.length >= 45 ? 'warning' : dailySchedule.length >= 50 ? 'danger' : ''}` }, `${dailySchedule.length}/50`)
+                                ) :
+                                React.createElement('div', { className: 'weekday-schedule' },
+                                    ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(day => {
+                                        const dayNames = { monday: 'Понедельник', tuesday: 'Вторник', wednesday: 'Среда', thursday: 'Четверг', friday: 'Пятница', saturday: 'Суббота', sunday: 'Воскресенье' };
+                                        return React.createElement('div', { key: day, className: 'weekday-item' },
+                                            React.createElement('div', { className: 'weekday-name' }, dayNames[day]),
+                                            React.createElement('div', { style: { flex: 1 } },
+                                                React.createElement('input', { className: 'weekday-input', value: weekSchedule[day] || '', onChange: (e) => updateCharCount(e.target.value, 'weekly', day), placeholder: 'Введите расписание', maxLength: 50 }),
+                                                React.createElement('div', { className: `char-counter ${(charCount.weekly[day] || 0) >= 45 ? 'warning' : (charCount.weekly[day] || 0) >= 50 ? 'danger' : ''}` }, `${charCount.weekly[day] || 0}/50`)
+                                            )
+                                        );
+                                    })
                                 )
                         ),
                         
                         React.createElement('div', { className: 'form-group' },
-                            React.createElement('label', null, 'Сколько игроков нужно найти? (от 1 до 4)'),
+                            React.createElement('label', null, 'Сколько игроков нужно найти? (1-4)'),
                             React.createElement('div', { className: 'flex', style: { gap: '10px' } }, [1,2,3,4].map(n => React.createElement('button', { key: n, type: 'button', onClick: () => setFormData({ ...formData, playersNeeded: n }), className: formData.playersNeeded === n ? 'btn btn-primary' : 'btn btn-outline' }, `${n} чел`)))
                         ),
                         
@@ -427,222 +642,187 @@
                 
                 showRules && React.createElement(RulesModal, null),
                 
-                // Активные анкеты
-                React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, '🔥 Активные анкеты'),
+                loading ? React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...') :
                 posts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет активных анкет') :
-                React.createElement('div', { className: 'lfg-grid' }, posts.map(post => {
-                    const isAuthor = user?.id === post.authorId;
-                    const totalSlots = post.playersNeeded + 1;
-                    const filledSlots = (post.teamMembers || []).length + 1;
-                    const availableRoles = Object.keys(post.rolesNeeded || {}).filter(r => post.rolesNeeded[r]);
-                    const myRoleInPost = post.myRole;
-                    
-                    return React.createElement('div', { key: post.id, className: 'lfg-card' },
-                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '15px' } },
-                            React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author?.steamId}`) },
-                                React.createElement('img', { src: post.author?.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%', border: '2px solid var(--primary)' } }),
-                                React.createElement('div', null,
-                                    React.createElement('h3', null, post.title),
-                                    React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author?.displayName || post.author?.steamNickname)
-                                )
-                            ),
-                            React.createElement('div', { className: `status-badge ${filledSlots === totalSlots ? 'status-upcoming' : 'status-in-progress'}` }, `${filledSlots}/${totalSlots} игроков`)
-                        ),
-                        
-                        React.createElement('div', { className: 'flex', style: { gap: '15px', marginBottom: '12px', flexWrap: 'wrap' } },
-                            React.createElement('span', null, post.region === 'RU' ? '🇷🇺' : '🌏'),
-                            React.createElement('span', null, '🎯 ', getScheduleText(post)),
-                            React.createElement('span', null, '👤 ', post.minFaceitLevel, '+ FaceIt')
-                        ),
-                        
-                        React.createElement('div', { style: { marginBottom: '12px' } },
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '👑 Моя роль: ', React.createElement('span', { className: getRoleClass(myRoleInPost) }, myRoleInPost)),
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '🎮 Нужны роли: ', availableRoles.map(r => React.createElement('span', { key: r, className: getRoleClass(r), style: { marginRight: '5px' } }, r))),
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '📝 Требования: уровень FaceIt ', post.minFaceitLevel, '+')
-                        ),
-                        
-                        // Команда
-                        React.createElement('div', { style: { marginBottom: '12px' } },
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '8px' } }, '👥 Состав команды:'),
-                            React.createElement('div', { className: `team-slot filled` },
-                                React.createElement('img', { src: post.author?.steamAvatar, style: { width: '28px', height: '28px', borderRadius: '50%' } }),
-                                React.createElement('span', null, post.author?.displayName || post.author?.steamNickname),
-                                React.createElement('span', { className: getRoleClass(myRoleInPost), style: { marginLeft: 'auto' } }, myRoleInPost)
-                            ),
-                            (post.teamMembers || []).map(member => React.createElement('div', { key: member.userId, className: 'team-slot filled' },
-                                React.createElement('img', { src: member.avatar, style: { width: '28px', height: '28px', borderRadius: '50%' } }),
-                                React.createElement('span', null, member.name),
-                                React.createElement('span', { className: getRoleClass(member.role), style: { marginLeft: 'auto' } }, member.role)
-                            )),
-                            [...Array(totalSlots - filledSlots)].map((_, i) => React.createElement('div', { key: `empty-${i}`, className: 'team-slot empty' },
-                                React.createElement('i', { className: 'fas fa-plus-circle', style: { color: 'var(--primary)' } }),
-                                React.createElement('span', null, 'Свободное место'),
-                                React.createElement('span', { style: { marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)' } }, 'Ожидает игрока')
-                            ))
-                        ),
-                        
-                        post.description && React.createElement('p', { className: 'text-gray', style: { fontSize: '13px', marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' } }, post.description),
-                        
-                        // Кнопки действий
-                        React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
-                            isAuthor && React.createElement(React.Fragment, null,
-                                React.createElement('button', { onClick: () => { fetchResponses(post.id); setShowResponses(showResponses === post.id ? null : post.id); }, className: 'btn btn-outline', style: { flex: 1 } }, React.createElement('i', { className: 'fas fa-users' }), ' Отклики'),
-                                filledSlots === totalSlots && React.createElement('button', { onClick: () => handleComplete(post.id), className: 'btn btn-primary', style: { flex: 1, background: '#4caf50' } }, '✅ Завершить поиск')
-                            ),
-                            !isAuthor && user && filledSlots < totalSlots && React.createElement('button', { onClick: () => {
-                                const available = availableRoles.filter(r => !(post.teamMembers || []).some(m => m.role === r) && r !== myRoleInPost);
-                                if (available.length === 1) handleRespond(post.id, available[0]);
-                                else if (available.length > 0) {
-                                    const role = prompt('Выберите роль: ' + available.join(', '));
-                                    if (role && available.includes(role)) handleRespond(post.id, role);
-                                    else showToast('Выберите доступную роль', 'error');
-                                } else showToast('Нет доступных ролей', 'error');
-                            }, className: 'btn btn-primary', style: { flex: 1 } }, '📝 Откликнуться'),
-                            !user && React.createElement('button', { onClick: () => showToast('Войдите через Steam', 'info'), className: 'btn btn-primary', style: { flex: 1 } }, 'Войдите, чтобы откликнуться')
-                        ),
-                        
-                        // Отклики (только для автора)
-                        showResponses === post.id && React.createElement('div', { style: { marginTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '15px' } },
-                            React.createElement('h4', { className: 'text-green', style: { marginBottom: '10px' } }, 'Отклики:'),
-                            responses.length === 0 ? React.createElement('p', { className: 'text-gray' }, 'Нет откликов') :
-                            responses.map(r => React.createElement('div', { key: r.id, className: 'response-card', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${r.user?.steamId}`) },
-                                    React.createElement('img', { src: r.user?.steamAvatar, style: { width: '36px', height: '36px', borderRadius: '50%' } }),
-                                    React.createElement('div', null,
-                                        React.createElement('strong', null, r.user?.displayName || r.user?.steamNickname),
-                                        React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, 'Хочет играть на ', React.createElement('span', { className: getRoleClass(r.role) }, r.role))
-                                    )
-                                ),
-                                React.createElement('div', { style: { display: 'flex', gap: '8px' } },
-                                    React.createElement('button', { onClick: () => handleAcceptResponse(post.id, r.id), className: 'btn btn-primary', style: { padding: '4px 12px', fontSize: '12px' } }, '✅'),
-                                    React.createElement('button', { onClick: () => handleRejectResponse(post.id, r.id), className: 'btn', style: { background: '#f44336', padding: '4px 12px', fontSize: '12px' } }, '❌')
-                                )
-                            ))
-                        )
-                    );
-                })),
-                
-                // Завершенные анкеты
-                React.createElement('h2', { className: 'text-green', style: { marginTop: '40px', marginBottom: '20px' } }, '✅ Успешно собранные команды'),
-                completedPosts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет завершенных анкет') :
-                React.createElement('div', { className: 'lfg-grid' }, completedPosts.map(post => {
-                    const isAuthor = user?.id === post.authorId;
-                    const hasReview = post.review;
-                    const totalSlots = post.playersNeeded + 1;
-                    
-                    return React.createElement('div', { key: post.id, className: 'lfg-card', style: { opacity: 0.9 } },
-                        React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author?.steamId}`) },
-                            React.createElement('img', { src: post.author?.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
-                            React.createElement('div', null, React.createElement('h3', null, post.title), React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author?.displayName || post.author?.steamNickname))
-                        ),
-                        
-                        React.createElement('div', { style: { marginBottom: '12px' } },
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, '👥 Состав команды:'),
-                            (post.teamMembers || []).map(m => React.createElement('div', { key: m.userId, className: 'team-slot filled', style: { marginBottom: '5px' } },
-                                React.createElement('img', { src: m.avatar, style: { width: '24px', height: '24px', borderRadius: '50%' } }),
-                                React.createElement('span', { style: { fontSize: '13px' } }, m.name),
-                                React.createElement('span', { className: getRoleClass(m.role), style: { marginLeft: 'auto', fontSize: '10px' } }, m.role)
-                            ))
-                        ),
-                        
-                        hasReview ? React.createElement('div', { style: { marginTop: '12px', padding: '10px', background: 'rgba(255,215,0,0.1)', borderRadius: '12px' } },
-                            React.createElement('div', { className: 'stars' }, [1,2,3,4,5].map(s => React.createElement('span', { key: s, className: `star ${s <= post.review.rating ? 'active' : ''}` }, '★'))),
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginTop: '5px' } }, post.review.comment)
-                        ) : isAuthor && React.createElement('div', { style: { marginTop: '12px' } },
-                            React.createElement('button', { onClick: () => setSelectedResponse(post.id), className: 'btn btn-outline', style: { width: '100%' } }, '✍️ Оставить отзыв')
-                        )
-                    );
-                })),
-                
-                // Модальное окно для отзыва
-                selectedResponse && React.createElement('div', { className: 'modal-overlay', onClick: () => setSelectedResponse(null) },
-                    React.createElement('div', { className: 'modal-content', onClick: (e) => e.stopPropagation() },
-                        React.createElement('div', { className: 'modal-header' }, React.createElement('h2', { className: 'text-green' }, 'Оставить отзыв'), React.createElement('button', { className: 'modal-close', onClick: () => setSelectedResponse(null) }, '✕')),
-                        React.createElement('div', { className: 'form-group' },
-                            React.createElement('label', null, 'Оценка'),
-                            React.createElement('div', { className: 'stars' }, [1,2,3,4,5].map(s => React.createElement('span', { key: s, onClick: () => setReviewData({ ...reviewData, rating: s }), className: `star ${s <= reviewData.rating ? 'active' : ''}`, style: { fontSize: '28px', cursor: 'pointer' } }, '★')))
-                        ),
-                        React.createElement('div', { className: 'form-group' }, React.createElement('label', null, 'Отзыв (макс 200 символов)'), React.createElement('textarea', { className: 'form-input', value: reviewData.comment, onChange: (e) => setReviewData({ ...reviewData, comment: e.target.value.slice(0, 200) }), rows: 3, maxLength: 200 })),
-                        React.createElement('div', { className: 'flex', style: { justifyContent: 'flex-end', gap: '12px', marginTop: '20px' } },
-                            React.createElement('button', { onClick: () => setSelectedResponse(null), className: 'btn', style: { background: '#555' } }, 'Отмена'),
-                            React.createElement('button', { onClick: () => handleLeaveReview(selectedResponse), className: 'btn btn-primary' }, 'Отправить отзыв')
-                        )
-                    )
-                )
-            );
-        }
-        
-        // ==================== СТРАНИЦА УСПЕШНЫХ АНКЕТ ====================
-        function CompletedPage({ navigate }) {
-            const { user } = useAuth();
-            const [posts, setPosts] = React.useState([]);
-            const [loading, setLoading] = React.useState(true);
-            
-            React.useEffect(() => {
-                api.get('/lfg/completed').then(res => { setPosts(res.data.data || []); setLoading(false); }).catch(() => setLoading(false));
-            }, []);
-            
-            const getRoleClass = (role) => `role-badge role-${role}`;
-            
-            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
-            
-            return React.createElement('div', { className: 'container' },
-                React.createElement('h1', { style: { fontSize: '28px', marginBottom: '20px' } }, '🏆 Успешно собранные команды'),
-                React.createElement('p', { className: 'text-gray', style: { marginBottom: '30px' } }, 'Здесь собраны анкеты, которые успешно сформировали команды и получили отзывы'),
-                posts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет завершенных анкет') :
                 React.createElement('div', { className: 'lfg-grid' }, posts.map(post => React.createElement('div', { key: post.id, className: 'lfg-card' },
-                    React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author?.steamId}`) },
-                        React.createElement('img', { src: post.author?.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
-                        React.createElement('div', null, React.createElement('h3', null, post.title), React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author?.displayName || post.author?.steamNickname))
+                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '15px' } },
+                        React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author.steamId}`) },
+                            React.createElement('img', { src: post.author.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%', border: '2px solid var(--primary)' } }),
+                            React.createElement('div', null, React.createElement('h3', null, post.title), React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author.displayName || post.author.steamNickname, ' • ', post.region === 'RU' ? '🇷🇺' : '🌏'))
+                        ),
+                        React.createElement('div', { className: 'status-badge status-upcoming' }, `Ищет ${post.playersNeeded} игроков`)
                     ),
-                    React.createElement('div', { className: 'flex', style: { gap: '10px', marginBottom: '10px', flexWrap: 'wrap' } },
-                        React.createElement('span', { className: 'status-badge status-completed' }, '✅ Команда собрана'),
-                        React.createElement('span', null, '📅 ', new Date(post.completedAt).toLocaleDateString('ru-RU'))
+                    React.createElement('div', { className: 'flex', style: { gap: '10px', marginBottom: '10px', flexWrap: 'wrap', fontSize: '12px' } },
+                        React.createElement('span', null, '🎭 ', post.myRole),
+                        React.createElement('span', null, '🗣️ ', { ru: '🇷🇺 Русский', en: '🇬🇧 English', de: '🇩🇪 Deutsch', fr: '🇫🇷 Français', es: '🇪🇸 Español', tr: '🇹🇷 Türkçe', pl: '🇵🇱 Polski', ua: '🇺🇦 Українська' }[post.language] || '🇷🇺 Русский'),
+                        React.createElement('span', null, '📅 ', post.scheduleType === 'daily' ? post.schedule : 'По дням')
                     ),
-                    post.review && React.createElement('div', { style: { marginTop: '12px', padding: '12px', background: 'rgba(255,215,0,0.1)', borderRadius: '12px' } },
-                        React.createElement('div', { className: 'stars' }, [1,2,3,4,5].map(s => React.createElement('span', { key: s, className: `star ${s <= post.review.rating ? 'active' : ''}` }, '★'))),
-                        React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginTop: '5px' } }, post.review.comment)
-                    )
+                    React.createElement('div', { style: { marginBottom: '10px' } },
+                        React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '🎮 Нужны роли: ', Object.keys(post.rolesNeeded || {}).filter(r => post.rolesNeeded[r]).map(r => React.createElement('span', { key: r, style: { background: 'rgba(76,0,255,0.2)', padding: '2px 8px', borderRadius: '20px', marginRight: '5px', fontSize: '11px' } }, r))),
+                        React.createElement('p', { className: 'text-gray', style: { fontSize: '12px' } }, '📈 Требования: FaceIt ', post.minFaceitLevel, '+')
+                    ),
+                    post.description && React.createElement('p', { className: 'text-gray', style: { fontSize: '13px', marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' } }, post.description),
+                    user?.id !== post.authorId && React.createElement('button', { onClick: async () => { try { await api.post(`/friends/request/${post.authorId}`); showToast('Заявка отправлена', 'success'); } catch (err) { showToast('Ошибка', 'error'); } }, className: 'btn btn-primary', style: { width: '100%' } }, '+ Добавить в друзья'),
+                    user?.id === post.authorId && React.createElement('button', { onClick: () => handleDelete(post.id), className: 'btn', style: { background: '#f44336', width: '100%' } }, 'Удалить анкету')
                 )))
             );
         }
         
-        // ==================== ОСТАЛЬНЫЕ СТРАНИЦЫ (заглушки для brevity) ====================
-        function FriendsPage({ navigate }) { return React.createElement('div', { className: 'container' }, React.createElement('h1', null, 'Друзья'), React.createElement('p', null, 'Страница в разработке')); }
-        function ChatPage({ userId, navigate }) { return React.createElement('div', { className: 'container' }, React.createElement('h1', null, 'Чат'), React.createElement('p', null, 'Страница в разработке')); }
-        function TournamentsPage({ navigate }) { return React.createElement('div', { className: 'container' }, React.createElement('h1', null, 'Турниры'), React.createElement('p', null, 'Страница в разработке')); }
-        function AdminPanel({ navigate }) { return React.createElement('div', { className: 'container' }, React.createElement('h1', null, 'Админ панель'), React.createElement('p', null, 'Страница в разработке')); }
-        function ProfilePage({ steamId, navigate }) { return React.createElement('div', { className: 'container' }, React.createElement('h1', null, 'Профиль'), React.createElement('p', null, 'Страница в разработке')); }
+        // ==================== ОСТАЛЬНЫЕ СТРАНИЦЫ ====================
+        function FriendsPage({ navigate }) {
+            const { user } = useAuth();
+            const [friends, setFriends] = React.useState([]);
+            const [incomingRequests, setIncomingRequests] = React.useState([]);
+            const [outgoingRequests, setOutgoingRequests] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [activeTab, setActiveTab] = React.useState('friends');
+            
+            const loadData = async () => {
+                if (!user) { setLoading(false); return; }
+                setLoading(true);
+                try {
+                    const [friendsRes, incomingRes, outgoingRes] = await Promise.all([
+                        api.get('/friends'), api.get('/friends/requests'), api.get('/friends/requests/sent')
+                    ]);
+                    setFriends(friendsRes.data.data || []);
+                    setIncomingRequests(incomingRes.data.data || []);
+                    setOutgoingRequests(outgoingRes.data.data || []);
+                } catch (err) { showToast('Ошибка загрузки', 'error'); }
+                setLoading(false);
+            };
+            React.useEffect(() => { if (user) loadData(); else setLoading(false); }, [user]);
+            
+            const handleRequest = async (requestId, action) => {
+                try { await api.post(`/friends/request/${requestId}/${action}`); await loadData(); showToast(action === 'accept' ? 'Заявка принята' : 'Заявка отклонена', 'success'); } 
+                catch (err) { showToast('Ошибка', 'error'); }
+            };
+            
+            const handleCancelRequest = async (requestId) => {
+                if (await customConfirm('Отменить заявку?')) {
+                    try { await api.delete(`/friends/request/${requestId}`); await loadData(); showToast('Заявка отменена', 'success'); } 
+                    catch (err) { showToast('Ошибка', 'error'); }
+                }
+            };
+            
+            const handleRemoveFriend = async (friendId) => {
+                if (await customConfirm('Удалить из друзей?')) {
+                    try { await api.delete(`/friends/${friendId}`); await loadData(); showToast('Удалён из друзей', 'success'); } 
+                    catch (err) { showToast('Ошибка', 'error'); }
+                }
+            };
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            if (!user) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Войдите через Steam');
+            
+            return React.createElement('div', { className: 'container' },
+                React.createElement('h1', { style: { fontSize: '28px', marginBottom: '20px' } }, '👥 Друзья'),
+                React.createElement('div', { className: 'flex', style: { marginBottom: '20px', gap: '10px', flexWrap: 'wrap' } },
+                    React.createElement('button', { onClick: () => setActiveTab('friends'), className: `btn ${activeTab === 'friends' ? 'btn-primary' : 'btn-outline'}` }, `Друзья (${friends.length})`),
+                    React.createElement('button', { onClick: () => setActiveTab('incoming'), className: `btn ${activeTab === 'incoming' ? 'btn-primary' : 'btn-outline'}` }, `Входящие (${incomingRequests.length})`),
+                    React.createElement('button', { onClick: () => setActiveTab('outgoing'), className: `btn ${activeTab === 'outgoing' ? 'btn-primary' : 'btn-outline'}` }, `Исходящие (${outgoingRequests.length})`)
+                ),
+                activeTab === 'friends' && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+                    friends.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет друзей') :
+                    friends.map(friend => React.createElement('div', { key: friend.id, className: 'card compact-friend', style: { display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${friend.steamId}`) },
+                        React.createElement('img', { src: friend.steamAvatar, style: { width: '40px', height: '40px', borderRadius: '50%' } }),
+                        React.createElement('div', { style: { flex: 1 } }, React.createElement('h4', { style: { fontSize: '16px' } }, friend.displayName || friend.steamNickname)),
+                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); navigate('/chat/' + friend.id); }, className: 'btn btn-primary', style: { padding: '6px 12px', fontSize: '12px' } }, '💬'),
+                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); handleRemoveFriend(friend.id); }, className: 'btn', style: { background: '#f44336', padding: '6px 12px', fontSize: '12px' } }, '🗑')
+                    ))
+                ),
+                activeTab === 'incoming' && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, incomingRequests.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет заявок') : incomingRequests.map(req => React.createElement('div', { key: req.id, className: 'card compact-friend', style: { display: 'flex', alignItems: 'center', gap: '15px' } },
+                    React.createElement('img', { src: req.fromAvatar, style: { width: '40px', height: '40px', borderRadius: '50%' } }),
+                    React.createElement('div', { style: { flex: 1 } }, React.createElement('h4', null, req.fromName)),
+                    React.createElement('button', { onClick: () => handleRequest(req.id, 'accept'), className: 'btn btn-primary', style: { padding: '6px 12px' } }, '✅'),
+                    React.createElement('button', { onClick: () => handleRequest(req.id, 'decline'), className: 'btn', style: { background: '#555', padding: '6px 12px' } }, '❌')
+                ))),
+                activeTab === 'outgoing' && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, outgoingRequests.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет отправленных') : outgoingRequests.map(req => React.createElement('div', { key: req.id, className: 'card compact-friend', style: { display: 'flex', alignItems: 'center', gap: '15px' } },
+                    React.createElement('img', { src: req.toAvatar, style: { width: '40px', height: '40px', borderRadius: '50%' } }),
+                    React.createElement('div', { style: { flex: 1 } }, React.createElement('h4', null, req.toName), React.createElement('p', { className: 'text-muted', style: { fontSize: '10px' } }, 'Ожидает ответа')),
+                    React.createElement('button', { onClick: () => handleCancelRequest(req.id), className: 'btn', style: { background: '#f44336', padding: '6px 12px' } }, 'Отменить')
+                )))
+            );
+        }
+        
+        function ChatPage({ userId, navigate }) {
+            const { user } = useAuth();
+            const [chatUser, setChatUser] = React.useState(null);
+            const [messages, setMessages] = React.useState([]);
+            const [newMessage, setNewMessage] = React.useState('');
+            const [loading, setLoading] = React.useState(true);
+            const [editingMessageId, setEditingMessageId] = React.useState(null);
+            const [editingText, setEditingText] = React.useState('');
+            const [showMenu, setShowMenu] = React.useState(false);
+            const messagesEndRef = React.useRef(null);
+            
+            const loadMessages = async () => { try { const res = await api.get(`/messages/${userId}`); setMessages(res.data.data || []); setLoading(false); } catch (err) { setLoading(false); } };
+            React.useEffect(() => { if (!user || !userId) return; api.get(`/user/by-id/${userId}`).then(res => setChatUser(res.data.user)).catch(() => setChatUser(null)); loadMessages(); }, [userId, user]);
+            React.useEffect(() => { const interval = setInterval(() => { if (userId) loadMessages(); }, 3000); return () => clearInterval(interval); }, [userId]);
+            React.useEffect(() => { if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+            
+            const sendMessage = async (e) => { e.preventDefault(); if (!newMessage.trim()) return; try { await api.post(`/messages/${userId}`, { text: newMessage }); setNewMessage(''); loadMessages(); } catch (err) { showToast('Ошибка', 'error'); } };
+            const deleteMessage = async (messageId) => { if (await customConfirm('Удалить?')) { try { await api.delete(`/messages/${messageId}`); loadMessages(); showToast('Удалено', 'success'); } catch (err) { showToast('Ошибка', 'error'); } } };
+            const startEdit = (msg) => { setEditingMessageId(msg.id); setEditingText(msg.text); };
+            const saveEdit = async (messageId) => { if (!editingText.trim()) return; try { await api.put(`/messages/${messageId}`, { text: editingText }); setEditingMessageId(null); setEditingText(''); loadMessages(); showToast('Изменено', 'success'); } catch (err) { showToast('Ошибка', 'error'); } };
+            const clearChat = async () => { if (await customConfirm('Очистить чат?')) { try { await api.delete(`/messages/chat/${userId}`); loadMessages(); showToast('Чат очищен', 'success'); } catch (err) { showToast('Ошибка', 'error'); } } };
+            const getStatusText = () => { if (!chatUser) return ''; const status = chatUser.status || 'offline'; if (status === 'online') return '🟢 В сети'; if (status === 'dnd') return '🔴 Не беспокоить'; return '⚫ Был(а) ' + formatRelativeTime(chatUser.lastSeen || chatUser.createdAt); };
+            
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            if (!chatUser) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Пользователь не найден');
+            
+            return React.createElement('div', { className: 'container', style: { maxWidth: '800px', margin: '0 auto' } },
+                React.createElement('div', { className: 'card', style: { marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' } },
+                    React.createElement('button', { onClick: () => navigate('/friends'), className: 'btn', style: { background: '#555', padding: '8px 12px' } }, '←'),
+                    React.createElement('img', { src: chatUser.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
+                    React.createElement('div', { style: { flex: 1 } }, React.createElement('h3', null, chatUser.displayName || chatUser.steamNickname), React.createElement('p', { className: 'text-muted', style: { fontSize: '11px' } }, getStatusText())),
+                    React.createElement('div', { style: { position: 'relative' } }, React.createElement('button', { onClick: () => setShowMenu(!showMenu), className: 'btn btn-outline', style: { padding: '8px 12px' } }, '⋮'), showMenu && React.createElement('div', { className: 'dropdown-menu' }, React.createElement('button', { onClick: () => { clearChat(); setShowMenu(false); }, className: 'danger' }, '🗑️ Очистить чат')))
+                ),
+                React.createElement('div', { className: 'card', style: { height: '450px', display: 'flex', flexDirection: 'column' } },
+                    React.createElement('div', { style: { flex: 1, overflowY: 'auto', padding: '16px' } }, messages.length === 0 ? React.createElement('div', { className: 'text-center', style: { padding: '40px' } }, 'Нет сообщений') : messages.map(msg => {
+                        const isOwn = msg.fromId === user?.id;
+                        const isEditing = editingMessageId === msg.id;
+                        return React.createElement('div', { key: msg.id, className: 'message-item', style: { textAlign: isOwn ? 'right' : 'left', marginBottom: '15px' } },
+                            React.createElement('div', { style: { display: 'inline-block', background: isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)', padding: '10px 14px', borderRadius: '16px', maxWidth: '75%', position: 'relative' } },
+                                isEditing ? React.createElement('div', null, React.createElement('input', { type: 'text', value: editingText, onChange: (e) => setEditingText(e.target.value), className: 'form-input', style: { marginBottom: '8px' }, autoFocus: true, onKeyPress: (e) => e.key === 'Enter' && saveEdit(msg.id) }), React.createElement('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end' } }, React.createElement('button', { onClick: () => setEditingMessageId(null), className: 'btn', style: { background: '#555', padding: '4px 8px', fontSize: '11px' } }, 'Отмена'), React.createElement('button', { onClick: () => saveEdit(msg.id), className: 'btn btn-primary', style: { padding: '4px 8px', fontSize: '11px' } }, 'Сохранить'))) :
+                                React.createElement(React.Fragment, null, React.createElement('p', { style: { fontSize: '13px', marginBottom: '4px', wordBreak: 'break-word' } }, msg.text), React.createElement('p', { style: { fontSize: '9px', color: 'rgba(255,255,255,0.4)' } }, formatTime(msg.createdAt)), isOwn && React.createElement('div', { className: 'message-actions', style: { position: 'absolute', top: '-20px', right: '0', display: 'flex', gap: '5px' } }, React.createElement('button', { onClick: () => startEdit(msg), className: 'btn', style: { background: '#4c00ff', padding: '2px 6px', fontSize: '10px' } }, '✏️'), React.createElement('button', { onClick: () => deleteMessage(msg.id), className: 'btn', style: { background: '#f44336', padding: '2px 6px', fontSize: '10px' } }, '🗑')))
+                            )
+                        );
+                    }), React.createElement('div', { ref: messagesEndRef })),
+                    React.createElement('form', { onSubmit: sendMessage, style: { display: 'flex', gap: '10px', padding: '12px', borderTop: '1px solid rgba(76,0,255,0.2)' } }, React.createElement('input', { type: 'text', value: newMessage, onChange: (e) => setNewMessage(e.target.value), placeholder: 'Сообщение...', className: 'form-input', style: { flex: 1 } }), React.createElement('button', { type: 'submit', className: 'btn btn-primary' }, '📤'))
+                )
+            );
+        }
+        
+        function TournamentsPage({ navigate }) {
+            const [tournaments, setTournaments] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            React.useEffect(() => { api.get('/tournaments').then(res => { setTournaments(res.data.data || []); setLoading(false); }).catch(() => setLoading(false)); }, []);
+            if (loading) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Загрузка...');
+            return React.createElement('div', { className: 'container' }, React.createElement('h1', null, '🏆 Турниры'), tournaments.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет турниров') : React.createElement('div', { className: 'tournaments-grid' }, tournaments.map(t => React.createElement('div', { key: t.id, className: 'tournament-card' }, React.createElement('h3', null, t.title), React.createElement('div', { className: 'prize' }, t.prizePool), React.createElement('button', { className: 'btn btn-primary' }, 'Подробнее')))));
+        }
+        
+        function AdminPanel({ navigate }) {
+            const { user } = useAuth();
+            if (!user?.isAdmin) return React.createElement('div', { className: 'text-center', style: { padding: '50px' } }, 'Доступ запрещён');
+            return React.createElement('div', { className: 'container' }, React.createElement('h1', null, '👑 Админ панель'), React.createElement('p', null, 'Управление пользователями'));
+        }
         
         // ==================== ГЛАВНОЕ ПРИЛОЖЕНИЕ ====================
         function App() {
             const [currentPath, setCurrentPath] = React.useState(window.location.pathname);
-            
-            React.useEffect(() => {
-                const handleLocation = () => setCurrentPath(window.location.pathname);
-                window.addEventListener('popstate', handleLocation);
-                return () => window.removeEventListener('popstate', handleLocation);
-            }, []);
-            
-            const navigate = (path) => {
-                window.history.pushState({}, '', path);
-                setCurrentPath(path);
-            };
+            React.useEffect(() => { const handleLocation = () => setCurrentPath(window.location.pathname); window.addEventListener('popstate', handleLocation); return () => window.removeEventListener('popstate', handleLocation); }, []);
+            const navigate = (path) => { window.history.pushState({}, '', path); setCurrentPath(path); };
             
             let content;
             if (currentPath === '/lfg') content = React.createElement(LfgPage, { navigate });
-            else if (currentPath === '/completed') content = React.createElement(CompletedPage, { navigate });
             else if (currentPath === '/tournaments') content = React.createElement(TournamentsPage, { navigate });
-            else if (currentPath === '/friends') content = React.createElement(FriendsPage, { navigate });
-            else if (currentPath === '/admin') content = React.createElement(AdminPanel, { navigate });
             else if (currentPath.startsWith('/profile/')) { const steamId = currentPath.split('/profile/')[1]; content = React.createElement(ProfilePage, { steamId, navigate }); }
+            else if (currentPath === '/admin') content = React.createElement(AdminPanel, { navigate });
+            else if (currentPath === '/friends') content = React.createElement(FriendsPage, { navigate });
             else if (currentPath.startsWith('/chat/')) { const userId = currentPath.split('/chat/')[1]; content = React.createElement(ChatPage, { userId, navigate }); }
             else content = React.createElement(HomePage, { navigate });
             
-            return React.createElement('div', null,
-                React.createElement(Header, { currentPage: currentPath === '/' ? '/' : currentPath.startsWith('/profile') ? '/profile' : currentPath, navigate }),
-                React.createElement('div', { style: { paddingTop: '40px' } }, content)
-            );
+            return React.createElement('div', null, React.createElement(Header, { currentPage: currentPath === '/' ? '/' : currentPath.startsWith('/profile') ? '/profile' : currentPath, navigate }), React.createElement('div', { style: { paddingTop: '40px' } }, content));
         }
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
