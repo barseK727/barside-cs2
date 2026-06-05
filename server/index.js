@@ -85,27 +85,10 @@ async function getAllUsers() {
 // --- БАНЫ ---
 async function isUserBanned(userId) {
     const res = await query('SELECT * FROM banned_users WHERE user_id = $1 AND (banned_until IS NULL OR banned_until > NOW())', [userId]);
-    return res.rows.length > 0 ? res.rows[0] : null;
+    return res.rows.length > 0;
 }
 
-async function banUser(userId, reason, durationMinutes = null) {
-    const bannedUntil = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000) : null;
-    await query(`INSERT INTO banned_users (user_id, reason, banned_until) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET reason = $2, banned_until = $3`, [userId, reason, bannedUntil]);
-    await query('UPDATE users SET is_banned = true WHERE id = $1', [userId]);
-}
-
-async function unbanUser(userId) {
-    await query('DELETE FROM banned_users WHERE user_id = $1', [userId]);
-    await query('UPDATE users SET is_banned = false WHERE id = $1', [userId]);
-}
-
-async function getAllBannedUsers() {
-    const res = await query(`SELECT bu.*, u.display_name, u.steam_nickname, u.steam_avatar FROM banned_users bu JOIN users u ON bu.user_id = u.id ORDER BY bu.created_at DESC`);
-    return res.rows.map(row => toCamelCase(row));
-}
-
-// --- LFG ПОСТЫ С ОТКЛИКАМИ ---
-// --- LFG ПОСТЫ С ОТКЛИКАМИ (ИСПРАВЛЕННЫЕ) ---
+// --- LFG ПОСТЫ ---
 async function getActiveLfgPosts() {
     const res = await query(`
         SELECT l.*, 
@@ -142,120 +125,12 @@ async function createLfgPost(postData) {
         INSERT INTO lfg_posts (id, author_id, title, region, my_role, schedule_type, schedule, 
                                week_schedule, players_needed, roles_needed, min_faceit_level, 
                                min_premier_rank, description, language, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'active')
         RETURNING *
     `, [id, authorId, title, region, myRole, scheduleType, schedule, JSON.stringify(weekSchedule || {}),
-        playersNeeded, JSON.stringify(rolesNeeded), minFaceitLevel, minPremierRank, description || '', language || 'ru', 'active']);
+        playersNeeded, JSON.stringify(rolesNeeded), minFaceitLevel, minPremierRank, description || '', language || 'ru']);
     
     return toCamelCase(res.rows[0]);
-}
-
-async function addResponseToLfg(postId, userId, role, message) {
-    // Проверяем, не откликался ли уже
-    const checkRes = await query('SELECT * FROM lfg_responses WHERE post_id = $1 AND user_id = $2 AND status = $3', 
-        [postId, userId, 'pending']);
-    if (checkRes.rows.length > 0) throw new Error('Вы уже откликались на эту анкету');
-    
-    // Проверяем, не занята ли роль
-    const postRes = await query('SELECT my_role, roles_needed, players_needed FROM lfg_posts WHERE id = $1', [postId]);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    const post = toCamelCase(postRes.rows[0]);
-    const rolesNeeded = post.rolesNeeded || {};
-    if (!rolesNeeded[role]) {
-        throw new Error('Эта роль не требуется в анкете');
-    }
-    
-    // Проверяем, не превышен ли лимит откликов на эту роль
-    const existingResponses = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND role = $2 AND status = $3', 
-        [postId, role, 'pending']);
-    if (parseInt(existingResponses.rows[0].count) >= 1) {
-        throw new Error('На эту роль уже есть отклик');
-    }
-    
-    const res = await query(`
-        INSERT INTO lfg_responses (id, post_id, user_id, role, message, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        RETURNING *
-    `, [`resp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, postId, userId, role, message || '', 'pending']);
-    
-    // Создаем уведомление для автора
-    const postAuthor = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
-    const responder = await findUserById(userId);
-    await query(`
-        INSERT INTO notifications (id, user_id, type, title, message, data, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-    `, [`notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, postAuthor.rows[0].author_id, 'lfg_response',
-        'Новый отклик на анкету!', `${responder.displayName || responder.steamNickname} хочет играть на роли ${role}`, JSON.stringify({ postId, responseId: res.rows[0].id })]);
-    
-    return toCamelCase(res.rows[0]);
-}
-
-async function getLfgResponses(postId) {
-    const res = await query(`
-        SELECT r.*, 
-               json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
-                                 'steamAvatar', u.steam_avatar, 'displayName', u.display_name) as users
-        FROM lfg_responses r
-        JOIN users u ON r.user_id = u.id
-        WHERE r.post_id = $1 AND r.status = 'pending'
-        ORDER BY r.created_at ASC
-    `, [postId]);
-    return res.rows.map(row => toCamelCase(row));
-}
-
-async function acceptResponse(postId, responseId, authorId) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
-    
-    // Отклоняем все остальные отклики на эту роль
-    const responseRes = await query('SELECT role FROM lfg_responses WHERE id = $1 AND post_id = $2', [responseId, postId]);
-    if (responseRes.rows.length === 0) throw new Error('Отклик не найден');
-    const role = responseRes.rows[0].role;
-    
-    await query('UPDATE lfg_responses SET status = $1 WHERE post_id = $2 AND role = $3 AND status = $4', 
-        ['rejected', postId, role, 'pending']);
-    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['accepted', responseId]);
-    
-    return true;
-}
-
-async function rejectResponse(postId, responseId, authorId) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
-    
-    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['rejected', responseId]);
-    return true;
-}
-
-async function completeLfgPost(postId, authorId) {
-    const postRes = await query('SELECT author_id, players_needed FROM lfg_posts WHERE id = $1 AND status = $2', 
-        [postId, 'active']);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
-    
-    // Получаем все принятые отклики
-    const acceptedResponses = await query('SELECT user_id, role FROM lfg_responses WHERE post_id = $1 AND status = $2', 
-        [postId, 'accepted']);
-    
-    const neededCount = postRes.rows[0].players_needed;
-    if (acceptedResponses.rows.length < neededCount) {
-        throw new Error(`Необходимо принять ${neededCount} игроков, принято ${acceptedResponses.rows.length}`);
-    }
-    
-    await query('UPDATE lfg_posts SET status = $1, completed_at = NOW() WHERE id = $2', ['completed', postId]);
-    return true;
-}
-
-async function addReviewToLfg(postId, authorId, rating, comment) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1 AND status = $2', [postId, 'completed']);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
-    
-    const review = { rating, comment, createdAt: new Date().toISOString() };
-    await query('UPDATE lfg_posts SET review = $1 WHERE id = $2', [JSON.stringify(review), postId]);
-    return true;
 }
 
 async function deleteLfgPost(postId, userId, isAdmin) {
@@ -385,11 +260,9 @@ async function initPostgresDB() {
   try {
     await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, steam_id TEXT UNIQUE NOT NULL, steam_nickname TEXT NOT NULL, steam_avatar TEXT, display_name TEXT, region TEXT DEFAULT 'RU', role TEXT DEFAULT 'RIFLER', has_mic BOOLEAN DEFAULT FALSE, bio TEXT, balance INTEGER DEFAULT 1000, is_admin BOOLEAN DEFAULT FALSE, is_banned BOOLEAN DEFAULT FALSE, status TEXT DEFAULT 'online', last_seen TIMESTAMP DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW(), settings JSONB)`);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS lfg_posts (id TEXT PRIMARY KEY, author_id TEXT REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, region TEXT NOT NULL, my_role TEXT NOT NULL, schedule_type TEXT DEFAULT 'daily', schedule TEXT NOT NULL, week_schedule JSONB, players_needed INTEGER DEFAULT 1, roles_needed JSONB NOT NULL, min_faceit_level INTEGER DEFAULT 1, min_premier_rank INTEGER DEFAULT 0, description TEXT, language TEXT DEFAULT 'ru', team_members JSONB DEFAULT '[]', status TEXT DEFAULT 'active', review JSONB, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)`);
+    await client.query(`CREATE TABLE IF NOT EXISTS lfg_posts (id TEXT PRIMARY KEY, author_id TEXT REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, region TEXT NOT NULL, my_role TEXT NOT NULL, schedule_type TEXT DEFAULT 'daily', schedule TEXT NOT NULL, week_schedule JSONB, players_needed INTEGER DEFAULT 1, roles_needed JSONB NOT NULL, min_faceit_level INTEGER DEFAULT 1, min_premier_rank INTEGER DEFAULT 0, description TEXT, language TEXT DEFAULT 'ru', status TEXT DEFAULT 'active', review JSONB, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)`);
     
     await client.query(`CREATE TABLE IF NOT EXISTS lfg_responses (id TEXT PRIMARY KEY, post_id TEXT REFERENCES lfg_posts(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, message TEXT, status TEXT DEFAULT 'pending', read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
-    
-    await client.query(`CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, data JSONB, read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
     
     await client.query(`CREATE TABLE IF NOT EXISTS friends (user_id TEXT REFERENCES users(id) ON DELETE CASCADE, friend_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, friend_id))`);
     
@@ -484,7 +357,7 @@ app.get('/api/auth/me', async (req, res) => {
         const user = await findUserById(payload.userId);
         if (user) {
             const banned = await isUserBanned(user.id);
-            return res.json({ data: { ...user, isBanned: !!banned, banReason: banned?.reason, banUntil: banned?.banned_until } });
+            return res.json({ data: { ...user, isBanned: banned } });
         }
     } catch(e) {}
     res.json({ data: null });
@@ -500,8 +373,7 @@ app.get('/api/profile/:steamId', async (req, res) => {
     try {
         const user = await findUserBySteamId(req.params.steamId);
         if (!user) return res.status(404).json({ error: 'User not found' });
-        const banInfo = await isUserBanned(user.id);
-        res.json({ user: { ...user, isBanned: !!banInfo, banReason: banInfo?.reason, banUntil: banInfo?.banned_until }, tournaments: [], lfgPosts: [] });
+        res.json({ user });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -516,21 +388,14 @@ app.put('/api/profile/:steamId', async (req, res) => {
         const isAdmin = currentUser?.isAdmin;
         const isOwnProfile = targetUser.id === payload.userId;
         if (!isOwnProfile && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
-        const { displayName, region, role, hasMic, bio, balance, isAdmin: makeAdmin, isBanned } = req.body;
+        
         const updates = {};
-        if (displayName !== undefined) updates.displayName = displayName;
-        if (region !== undefined) updates.region = region;
-        if (role !== undefined) updates.role = role;
-        if (hasMic !== undefined) updates.hasMic = hasMic;
-        if (bio !== undefined) updates.bio = bio;
-        if (isAdmin) {
-            if (balance !== undefined) updates.balance = balance;
-            if (makeAdmin !== undefined) updates.isAdmin = makeAdmin;
-            if (isBanned !== undefined) {
-                if (isBanned) await banUser(targetUser.id, 'Banned by admin');
-                else await unbanUser(targetUser.id);
-            }
-        }
+        if (req.body.displayName !== undefined) updates.displayName = req.body.displayName;
+        if (req.body.region !== undefined) updates.region = req.body.region;
+        if (req.body.role !== undefined) updates.role = req.body.role;
+        if (req.body.hasMic !== undefined) updates.hasMic = req.body.hasMic;
+        if (req.body.bio !== undefined) updates.bio = req.body.bio;
+        
         if (Object.keys(updates).length > 0) await updateUser(req.params.steamId, updates);
         const updatedUser = await findUserBySteamId(req.params.steamId);
         res.json({ user: updatedUser });
@@ -572,7 +437,7 @@ app.get('/api/stats', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// ============= LFG МАРШРУТЫ С ОТКЛИКАМИ =============
+// ============= LFG МАРШРУТЫ =============
 app.get('/api/lfg', async (req, res) => {
     try {
         const posts = await getActiveLfgPosts();
@@ -595,16 +460,25 @@ app.post('/api/lfg', checkBanned, async (req, res) => {
         const user = await findUserById(payload.userId);
         if (!user) return res.status(401).json({ error: 'User not found' });
         
+        console.log('Received LFG data:', req.body);
+        
         const { title, region, myRole, scheduleType, schedule, weekSchedule, playersNeeded, rolesNeeded, minFaceitLevel, minPremierRank, description, language } = req.body;
-        if (!title || !region || !myRole) return res.status(400).json({ error: 'Missing required fields' });
+        
+        if (!title || !region || !myRole) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
         
         const userPostsRes = await query("SELECT COUNT(*) FROM lfg_posts WHERE author_id = $1 AND status = 'active'", [user.id]);
-        if (parseInt(userPostsRes.rows[0].count) >= 2) return res.status(400).json({ error: 'Maximum 2 active posts per user' });
+        if (parseInt(userPostsRes.rows[0].count) >= 2) {
+            return res.status(400).json({ error: 'Maximum 2 active posts per user' });
+        }
         
         const newPost = {
             id: `lfg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
             authorId: user.id,
-            title, region, myRole,
+            title,
+            region,
+            myRole: myRole || 'RIFLER',
             scheduleType: scheduleType || 'daily',
             schedule: schedule || '',
             weekSchedule: weekSchedule || {},
@@ -616,103 +490,14 @@ app.post('/api/lfg', checkBanned, async (req, res) => {
             language: language || 'ru'
         };
         
+        console.log('Creating post:', newPost);
+        
         const created = await createLfgPost(newPost);
         res.status(201).json({ data: created });
-    } catch (err) { res.status(500).json({ error: 'Server error' }); }
-});
-
-app.post('/api/lfg/:postId/respond', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        const { role, message } = req.body;
-        const response = await addResponseToLfg(req.params.postId, user.id, role, message);
-        res.status(201).json({ data: response });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.get('/api/lfg/:postId/responses', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [req.params.postId]);
-        if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
-        if (postRes.rows[0].author_id !== user.id && !user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
-        
-        const responses = await getLfgResponses(req.params.postId);
-        res.json({ data: responses });
-    } catch (err) { res.status(500).json({ error: 'Server error' }); }
-});
-
-app.post('/api/lfg/:postId/responses/:responseId/accept', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        await acceptResponse(req.params.postId, req.params.responseId, user.id);
-        res.json({ success: true });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.post('/api/lfg/:postId/responses/:responseId/reject', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        await rejectResponse(req.params.postId, req.params.responseId, user.id);
-        res.json({ success: true });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.post('/api/lfg/:postId/complete', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        await completeLfgPost(req.params.postId, user.id);
-        res.json({ success: true });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.post('/api/lfg/:postId/review', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        const { rating, comment } = req.body;
-        await addReviewToLfg(req.params.postId, user.id, rating, comment);
-        res.json({ success: true });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.get('/api/lfg/responses/unread', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.json({ count: 0 });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const count = await getUnreadResponsesCount(payload.userId);
-        res.json({ count });
-    } catch (err) { res.json({ count: 0 }); }
+    } catch (err) { 
+        console.error('Error creating LFG post:', err);
+        res.status(500).json({ error: 'Internal server error: ' + err.message }); 
+    }
 });
 
 app.delete('/api/lfg/:id', checkBanned, async (req, res) => {
@@ -723,11 +508,8 @@ app.delete('/api/lfg/:id', checkBanned, async (req, res) => {
         const user = await findUserById(payload.userId);
         if (!user) return res.status(401).json({ error: 'Unauthorized' });
         
-        const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [req.params.id]);
-        if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
-        if (postRes.rows[0].author_id !== user.id && !user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
-        
-        await query('DELETE FROM lfg_posts WHERE id = $1', [req.params.id]);
+        const deleted = await deleteLfgPost(req.params.id, user.id, user.isAdmin);
+        if (!deleted) return res.status(404).json({ error: 'Post not found or forbidden' });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
@@ -918,8 +700,7 @@ app.get('/api/admin/users', checkBanned, async (req, res) => {
         const user = await findUserById(payload.userId);
         if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         const users = await getAllUsers();
-        const usersWithBan = await Promise.all(users.map(async u => ({ ...u, isBanned: !!(await isUserBanned(u.id)) })));
-        res.json({ data: usersWithBan });
+        res.json({ data: users });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -929,8 +710,8 @@ app.get('/api/admin/banned-users', checkBanned, async (req, res) => {
     const payload = JSON.parse(Buffer.from(token, 'base64').toString());
     const currentUser = await findUserById(payload.userId);
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    const bannedUsers = await getAllBannedUsers();
-    res.json({ data: bannedUsers });
+    const bannedUsers = await query('SELECT * FROM banned_users');
+    res.json({ data: bannedUsers.rows });
 });
 
 app.post('/api/admin/unban/:userId', checkBanned, async (req, res) => {
@@ -939,7 +720,7 @@ app.post('/api/admin/unban/:userId', checkBanned, async (req, res) => {
     const payload = JSON.parse(Buffer.from(token, 'base64').toString());
     const currentUser = await findUserById(payload.userId);
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    await unbanUser(req.params.userId);
+    await query('DELETE FROM banned_users WHERE user_id = $1', [req.params.userId]);
     res.json({ success: true });
 });
 
@@ -951,7 +732,8 @@ app.post('/api/admin/ban', checkBanned, async (req, res) => {
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
     const { userId, reason, durationMinutes } = req.body;
     if (!userId || !reason) return res.status(400).json({ error: 'Missing userId or reason' });
-    await banUser(userId, reason, durationMinutes || null);
+    const bannedUntil = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000) : null;
+    await query(`INSERT INTO banned_users (user_id, reason, banned_until) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET reason = $2, banned_until = $3`, [userId, reason, bannedUntil]);
     res.json({ success: true });
 });
 
@@ -1002,29 +784,22 @@ app.get('/healthz', (req, res) => { res.status(200).json({ status: 'ok' }); });
 // ============= СТАТИКА =============
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
 
-// ============= ДОПОЛНИТЕЛЬНЫЕ МАРШРУТЫ =============
-app.get('/api/lfg/responses/unread', checkBanned, async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.json({ count: 0 });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const count = await getUnreadResponsesCount(payload.userId);
-        res.json({ count });
-    } catch (err) { res.json({ count: 0 }); }
-});
-
-app.delete('/api/lfg/:id', checkBanned, async (req, res) => {
+// ВРЕМЕННЫЙ МАРШРУТ ДЛЯ ОЧИСТКИ - ТОЛЬКО ДЛЯ АДМИНА
+app.get('/api/admin/clear-lfg', async (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'Unauthorized' });
+        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         
-        const deleted = await deleteLfgPost(req.params.id, user.id, user.isAdmin);
-        if (!deleted) return res.status(404).json({ error: 'Post not found or forbidden' });
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'Server error' }); }
+        await query('DELETE FROM lfg_responses');
+        await query('DELETE FROM lfg_posts');
+        
+        res.json({ success: true, message: 'All LFG posts and responses have been deleted' });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // ============= ЗАПУСК =============
