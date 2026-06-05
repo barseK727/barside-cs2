@@ -224,7 +224,6 @@
                     React.createElement('div', { className: 'nav' },
                         React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/'); }, className: `nav-link ${isActive('/')}` }, React.createElement('i', { className: 'fas fa-home' }), ' Главная'),
                         React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/lfg'); }, className: `nav-link ${isActive('/lfg')}` }, React.createElement('i', { className: 'fas fa-users' }), ' Поиск команды', responseCount > 0 && React.createElement('span', { className: 'notification-badge' }, responseCount)),
-                        React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/completed'); }, className: `nav-link ${isActive('/completed')}` }, React.createElement('i', { className: 'fas fa-check-circle' }), ' Успешные'),
                         React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/friends'); }, className: `nav-link ${isActive('/friends')}` }, React.createElement('i', { className: 'fas fa-user-friends' }), ' Друзья', unreadCount > 0 && React.createElement('span', { className: 'notification-badge' }, unreadCount)),
                         user?.isAdmin && React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate('/admin'); }, className: `nav-link ${isActive('/admin')}` }, React.createElement('i', { className: 'fas fa-shield-alt' }), ' Админ'),
                         user ? React.createElement('a', { href: '#', onClick: (e) => { e.preventDefault(); navigate(`/profile/${user.steamId}`); }, className: 'profile-btn' },
@@ -291,6 +290,12 @@
                 rolesNeeded: { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
                 minFaceitLevel: 1, minPremierRank: 0, description: '', language: 'ru'
             });
+            
+            // Функция для скролла к успешным анкетам
+            const scrollToCompleted = () => {
+                const element = document.getElementById('completed-section');
+                if (element) element.scrollIntoView({ behavior: 'smooth' });
+            };
             
             const rolesList = [
                 { key: 'IGL', name: '👑 IGL', color: '#ffd700' },
@@ -476,9 +481,15 @@
             );
             
             return React.createElement('div', { className: 'container' },
-                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap' } },
-                    React.createElement('div', null, React.createElement('h1', null, '🔍 Поиск команды'), React.createElement('p', { className: 'text-gray' }, 'Найди тиммейтов и собери команду для CS2')),
-                    user && !showForm && React.createElement('button', { onClick: checkRules, className: 'btn btn-primary' }, '+ Создать анкету')
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' } },
+                    React.createElement('div', null, 
+                        React.createElement('h1', null, '🔍 Поиск команды'), 
+                        React.createElement('p', { className: 'text-gray' }, 'Найди тиммейтов и собери команду для CS2')
+                    ),
+                    React.createElement('div', { style: { display: 'flex', gap: '12px' } },
+                        React.createElement('button', { onClick: scrollToCompleted, className: 'btn btn-outline' }, '🏆 Успешные анкеты ↓'),
+                        user && !showForm && React.createElement('button', { onClick: checkRules, className: 'btn btn-primary' }, '+ Создать анкету')
+                    )
                 ),
                 
                 // Форма создания анкеты
@@ -625,35 +636,37 @@
                     );
                 })),
                 
-                // Успешные анкеты
-                React.createElement('h2', { className: 'text-green', style: { marginTop: '40px', marginBottom: '20px' } }, '✅ Успешно собранные команды'),
-                completedPosts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет завершенных анкет') :
-                React.createElement('div', { className: 'lfg-grid' }, completedPosts.map(post => {
-                    const isAuthor = user?.id === post.authorId;
-                    const teamMembers = post.teamMembers || [];
-                    const hasReview = post.review;
-                    
-                    return React.createElement('div', { key: post.id, className: 'lfg-card', style: { opacity: 0.9 } },
-                        React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author?.steamId}`) },
-                            React.createElement('img', { src: post.author?.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
-                            React.createElement('div', null, React.createElement('h3', null, post.title), React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author?.displayName || post.author?.steamNickname))
-                        ),
+                // Успешные анкеты с id для скролла
+                React.createElement('div', { id: 'completed-section', style: { marginTop: '40px' } },
+                    React.createElement('h2', { className: 'text-green', style: { marginBottom: '20px' } }, '✅ Успешно собранные команды'),
+                    completedPosts.length === 0 ? React.createElement('div', { className: 'card text-center' }, 'Нет завершенных анкет') :
+                    React.createElement('div', { className: 'lfg-grid' }, completedPosts.map(post => {
+                        const isAuthor = user?.id === post.authorId;
+                        const teamMembers = post.teamMembers || [];
+                        const hasReview = post.review;
                         
-                        React.createElement('div', { style: { marginBottom: '12px' } },
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '👥 Состав команды:'),
-                            teamMembers.map(m => React.createElement('div', { key: m.userId, className: 'team-slot filled', style: { marginBottom: '5px' } },
-                                React.createElement('img', { src: m.avatar, style: { width: '24px', height: '24px', borderRadius: '50%' } }),
-                                React.createElement('span', { style: { fontSize: '13px' } }, m.name),
-                                React.createElement('span', { className: getRoleClass(m.role), style: { marginLeft: 'auto', fontSize: '10px' } }, m.role)
-                            ))
-                        ),
-                        
-                        hasReview ? React.createElement('div', { style: { marginTop: '12px', padding: '10px', background: 'rgba(255,215,0,0.1)', borderRadius: '12px' } },
-                            React.createElement('div', { className: 'stars' }, [1,2,3,4,5].map(s => React.createElement('span', { key: s, className: `star ${s <= post.review.rating ? 'active' : ''}` }, '★'))),
-                            React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginTop: '5px' } }, post.review.comment)
-                        ) : isAuthor && React.createElement('button', { onClick: () => setSelectedForReview(post.id), className: 'btn btn-outline', style: { width: '100%', marginTop: '12px' } }, '✍️ Оставить отзыв')
-                    );
-                })),
+                        return React.createElement('div', { key: post.id, className: 'lfg-card', style: { opacity: 0.9 } },
+                            React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '15px', cursor: 'pointer' }, onClick: () => navigate(`/profile/${post.author?.steamId}`) },
+                                React.createElement('img', { src: post.author?.steamAvatar, style: { width: '48px', height: '48px', borderRadius: '50%' } }),
+                                React.createElement('div', null, React.createElement('h3', null, post.title), React.createElement('p', { className: 'text-gray', style: { fontSize: '11px' } }, post.author?.displayName || post.author?.steamNickname))
+                            ),
+                            
+                            React.createElement('div', { style: { marginBottom: '12px' } },
+                                React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginBottom: '5px' } }, '👥 Состав команды:'),
+                                teamMembers.map(m => React.createElement('div', { key: m.userId, className: 'team-slot filled', style: { marginBottom: '5px' } },
+                                    React.createElement('img', { src: m.avatar, style: { width: '24px', height: '24px', borderRadius: '50%' } }),
+                                    React.createElement('span', { style: { fontSize: '13px' } }, m.name),
+                                    React.createElement('span', { className: getRoleClass(m.role), style: { marginLeft: 'auto', fontSize: '10px' } }, m.role)
+                                ))
+                            ),
+                            
+                            hasReview ? React.createElement('div', { style: { marginTop: '12px', padding: '10px', background: 'rgba(255,215,0,0.1)', borderRadius: '12px' } },
+                                React.createElement('div', { className: 'stars' }, [1,2,3,4,5].map(s => React.createElement('span', { key: s, className: `star ${s <= post.review.rating ? 'active' : ''}` }, '★'))),
+                                React.createElement('p', { className: 'text-gray', style: { fontSize: '12px', marginTop: '5px' } }, post.review.comment)
+                            ) : isAuthor && React.createElement('button', { onClick: () => setSelectedForReview(post.id), className: 'btn btn-outline', style: { width: '100%', marginTop: '12px' } }, '✍️ Оставить отзыв')
+                        );
+                    }))
+                ),
                 
                 // Модальное окно для отзыва
                 selectedForReview && React.createElement('div', { className: 'modal-overlay', onClick: () => setSelectedForReview(null) },
