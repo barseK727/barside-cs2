@@ -42,7 +42,7 @@ async function query(text, params) {
     return res;
 }
 
-// --- ПОЛЬЗОВАТЕЛИ ---
+// ============= ПОЛЬЗОВАТЕЛИ =============
 async function findUserBySteamId(steamId) {
     const res = await query('SELECT * FROM users WHERE steam_id = $1', [steamId]);
     return res.rows[0] ? toCamelCase(res.rows[0]) : null;
@@ -82,19 +82,36 @@ async function getAllUsers() {
     return res.rows.map(toCamelCase);
 }
 
-// --- БАНЫ ---
+// ============= БАНЫ =============
 async function isUserBanned(userId) {
     const res = await query('SELECT * FROM banned_users WHERE user_id = $1 AND (banned_until IS NULL OR banned_until > NOW())', [userId]);
     return res.rows.length > 0;
 }
 
-// --- LFG ПОСТЫ ---
+async function banUser(userId, reason, durationMinutes = null) {
+    const bannedUntil = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000) : null;
+    await query(`INSERT INTO banned_users (user_id, reason, banned_until) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET reason = $2, banned_until = $3`, [userId, reason, bannedUntil]);
+    await query('UPDATE users SET is_banned = true WHERE id = $1', [userId]);
+}
+
+async function unbanUser(userId) {
+    await query('DELETE FROM banned_users WHERE user_id = $1', [userId]);
+    await query('UPDATE users SET is_banned = false WHERE id = $1', [userId]);
+}
+
+async function getAllBannedUsers() {
+    const res = await query(`SELECT bu.*, u.display_name, u.steam_nickname, u.steam_avatar FROM banned_users bu JOIN users u ON bu.user_id = u.id ORDER BY bu.created_at DESC`);
+    return res.rows.map(row => toCamelCase(row));
+}
+
+// ============= LFG ПОСТЫ =============
 async function getActiveLfgPosts() {
     const res = await query(`
         SELECT l.*, 
                json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname, 
                                  'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 
-                                 'region', u.region, 'role', u.role) as author
+                                 'region', u.region, 'role', u.role) as author,
+               COALESCE(l.team_members, '[]'::json) as team_members
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
         WHERE l.status = 'active'
@@ -108,7 +125,9 @@ async function getCompletedLfgPosts() {
         SELECT l.*, 
                json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname, 
                                  'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 
-                                 'region', u.region, 'role', u.role) as author
+                                 'region', u.region, 'role', u.role) as author,
+               COALESCE(l.team_members, '[]'::json) as team_members,
+               l.review
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
         WHERE l.status = 'completed'
@@ -124,13 +143,153 @@ async function createLfgPost(postData) {
     const res = await query(`
         INSERT INTO lfg_posts (id, author_id, title, region, my_role, schedule_type, schedule, 
                                week_schedule, players_needed, roles_needed, min_faceit_level, 
-                               min_premier_rank, description, language, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'active')
+                               min_premier_rank, description, language, team_members, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'active')
         RETURNING *
     `, [id, authorId, title, region, myRole, scheduleType, schedule, JSON.stringify(weekSchedule || {}),
-        playersNeeded, JSON.stringify(rolesNeeded), minFaceitLevel, minPremierRank, description || '', language || 'ru']);
+        playersNeeded, JSON.stringify(rolesNeeded), minFaceitLevel, minPremierRank, description || '', language || 'ru',
+        JSON.stringify([{ userId: authorId, name: null, avatar: null, role: myRole, isCreator: true, joinedAt: new Date().toISOString() }])]);
     
     return toCamelCase(res.rows[0]);
+}
+
+async function addResponseToLfg(postId, userId, role, message) {
+    // Проверяем, не откликался ли уже
+    const checkRes = await query('SELECT * FROM lfg_responses WHERE post_id = $1 AND user_id = $2 AND status = $3', 
+        [postId, userId, 'pending']);
+    if (checkRes.rows.length > 0) throw new Error('Вы уже откликались на эту анкету');
+    
+    // Проверяем, не занята ли роль
+    const postRes = await query('SELECT team_members, my_role, roles_needed FROM lfg_posts WHERE id = $1 AND status = $2', 
+        [postId, 'active']);
+    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    
+    const post = toCamelCase(postRes.rows[0]);
+    const teamMembers = post.teamMembers || [];
+    const rolesNeeded = post.rolesNeeded || {};
+    
+    if (!rolesNeeded[role]) {
+        throw new Error('Эта роль не требуется в анкете');
+    }
+    if (teamMembers.some(m => m.role === role)) {
+        throw new Error('Эта роль уже занята');
+    }
+    
+    const res = await query(`
+        INSERT INTO lfg_responses (id, post_id, user_id, role, message, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        RETURNING *
+    `, [`resp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, postId, userId, role, message || '', 'pending']);
+    
+    // Создаем уведомление для автора
+    const postAuthor = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
+    const responder = await findUserById(userId);
+    await query(`
+        INSERT INTO notifications (id, user_id, type, title, message, data, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    `, [`notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, postAuthor.rows[0].author_id, 'lfg_response',
+        'Новый отклик на анкету!', `${responder.displayName || responder.steamNickname} хочет играть на роли ${role}`, JSON.stringify({ postId, responseId: res.rows[0].id })]);
+    
+    return toCamelCase(res.rows[0]);
+}
+
+async function getLfgResponses(postId) {
+    const res = await query(`
+        SELECT r.*, 
+               json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
+                                 'steamAvatar', u.steam_avatar, 'displayName', u.display_name) as user
+        FROM lfg_responses r
+        JOIN users u ON r.user_id = u.id
+        WHERE r.post_id = $1 AND r.status = 'pending'
+        ORDER BY r.created_at ASC
+    `, [postId]);
+    return res.rows.map(row => toCamelCase(row));
+}
+
+async function getUnreadResponsesCount(userId) {
+    const res = await query(`
+        SELECT COUNT(*) FROM lfg_responses r
+        JOIN lfg_posts p ON r.post_id = p.id
+        WHERE p.author_id = $1 AND r.status = 'pending' AND r.read = false
+    `, [userId]);
+    return parseInt(res.rows[0].count);
+}
+
+async function acceptResponse(postId, responseId, authorId) {
+    const postRes = await query('SELECT author_id, team_members, players_needed FROM lfg_posts WHERE id = $1 AND status = $2', 
+        [postId, 'active']);
+    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
+    
+    const responseRes = await query('SELECT * FROM lfg_responses WHERE id = $1 AND post_id = $2 AND status = $3', 
+        [responseId, postId, 'pending']);
+    if (responseRes.rows.length === 0) throw new Error('Отклик не найден');
+    
+    const response = toCamelCase(responseRes.rows[0]);
+    let teamMembers = postRes.rows[0].team_members || [];
+    if (typeof teamMembers === 'string') teamMembers = JSON.parse(teamMembers);
+    
+    const userRes = await query('SELECT steam_nickname, steam_avatar, display_name FROM users WHERE id = $1', [response.userId]);
+    const newMember = {
+        userId: response.userId,
+        name: userRes.rows[0].display_name || userRes.rows[0].steam_nickname,
+        avatar: userRes.rows[0].steam_avatar,
+        role: response.role,
+        joinedAt: new Date().toISOString()
+    };
+    teamMembers.push(newMember);
+    
+    // Отклоняем все остальные отклики на эту роль
+    await query('UPDATE lfg_responses SET status = $1 WHERE post_id = $2 AND role = $3 AND status = $4 AND id != $5', 
+        ['rejected', postId, response.role, 'pending', responseId]);
+    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['accepted', responseId]);
+    await query('UPDATE lfg_posts SET team_members = $1 WHERE id = $2', [JSON.stringify(teamMembers), postId]);
+    
+    // Уведомление принятому игроку
+    await query(`
+        INSERT INTO notifications (id, user_id, type, title, message, data, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    `, [`notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, response.userId, 'lfg_accepted',
+        'Вас приняли в команду!', `Ваш отклик на анкету был принят.`, JSON.stringify({ postId })]);
+    
+    return true;
+}
+
+async function rejectResponse(postId, responseId, authorId) {
+    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
+    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
+    
+    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['rejected', responseId]);
+    return true;
+}
+
+async function completeLfgPost(postId, authorId) {
+    const postRes = await query('SELECT author_id, team_members, players_needed FROM lfg_posts WHERE id = $1 AND status = $2', 
+        [postId, 'active']);
+    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
+    
+    let teamMembers = postRes.rows[0].team_members || [];
+    if (typeof teamMembers === 'string') teamMembers = JSON.parse(teamMembers);
+    
+    const neededCount = postRes.rows[0].players_needed;
+    if (teamMembers.length - 1 < neededCount) {
+        throw new Error(`Необходимо набрать ${neededCount} игроков, набрано ${teamMembers.length - 1}`);
+    }
+    
+    await query('UPDATE lfg_posts SET status = $1, completed_at = NOW() WHERE id = $2', ['completed', postId]);
+    return true;
+}
+
+async function addReviewToLfg(postId, authorId, rating, comment) {
+    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1 AND status = $2', [postId, 'completed']);
+    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
+    
+    const review = { rating, comment, createdAt: new Date().toISOString() };
+    await query('UPDATE lfg_posts SET review = $1 WHERE id = $2', [JSON.stringify(review), postId]);
+    return true;
 }
 
 async function deleteLfgPost(postId, userId, isAdmin) {
@@ -142,9 +301,14 @@ async function deleteLfgPost(postId, userId, isAdmin) {
     return true;
 }
 
-// --- ДРУЗЬЯ ---
+// ============= ДРУЗЬЯ =============
 async function getFriends(userId) {
-    const res = await query(`SELECT u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, u.region, u.role, u.balance FROM users u JOIN friends f ON f.friend_id = u.id WHERE f.user_id = $1`, [userId]);
+    const res = await query(`
+        SELECT u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, u.region, u.role, u.balance, u.status, u.last_seen
+        FROM users u 
+        JOIN friends f ON f.friend_id = u.id 
+        WHERE f.user_id = $1
+    `, [userId]);
     return res.rows.map(toCamelCase);
 }
 
@@ -153,12 +317,22 @@ async function sendFriendRequest(requestId, fromId, toId) {
 }
 
 async function getFriendRequests(toUserId) {
-    const res = await query(`SELECT fr.*, u.steam_nickname as from_name, u.steam_avatar as from_avatar FROM friend_requests fr JOIN users u ON fr.from_id = u.id WHERE fr.to_id = $1 AND fr.status = 'pending'`, [toUserId]);
+    const res = await query(`
+        SELECT fr.*, u.steam_nickname as from_name, u.steam_avatar as from_avatar 
+        FROM friend_requests fr 
+        JOIN users u ON fr.from_id = u.id 
+        WHERE fr.to_id = $1 AND fr.status = 'pending'
+    `, [toUserId]);
     return res.rows.map(row => toCamelCase(row));
 }
 
 async function getSentFriendRequests(fromUserId) {
-    const res = await query(`SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar FROM friend_requests fr JOIN users u ON fr.to_id = u.id WHERE fr.from_id = $1 AND fr.status = 'pending'`, [fromUserId]);
+    const res = await query(`
+        SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar 
+        FROM friend_requests fr 
+        JOIN users u ON fr.to_id = u.id 
+        WHERE fr.from_id = $1 AND fr.status = 'pending'
+    `, [fromUserId]);
     return res.rows.map(row => toCamelCase(row));
 }
 
@@ -196,15 +370,23 @@ async function removeFriend(userId, friendId) {
     return true;
 }
 
-// --- СООБЩЕНИЯ ---
+// ============= СООБЩЕНИЯ =============
 async function getMessages(userId, otherUserId) {
-    const res = await query(`SELECT * FROM messages WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1) ORDER BY created_at ASC`, [userId, otherUserId]);
+    const res = await query(`
+        SELECT * FROM messages 
+        WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1) 
+        ORDER BY created_at ASC
+    `, [userId, otherUserId]);
     return res.rows.map(toCamelCase);
 }
 
 async function createMessage(message) {
     const snakeMsg = toSnakeCase(message);
-    const res = await query(`INSERT INTO messages (id, from_id, to_id, text, read, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *`, [snakeMsg.id, snakeMsg.from_id, snakeMsg.to_id, snakeMsg.text, false]);
+    const res = await query(`
+        INSERT INTO messages (id, from_id, to_id, text, read, created_at) 
+        VALUES ($1, $2, $3, $4, $5, NOW()) 
+        RETURNING *
+    `, [snakeMsg.id, snakeMsg.from_id, snakeMsg.to_id, snakeMsg.text, false]);
     return toCamelCase(res.rows[0]);
 }
 
@@ -232,7 +414,7 @@ async function getUnreadCount(userId) {
     return parseInt(res.rows[0].count);
 }
 
-// --- БАЛАНС ---
+// ============= БАЛАНС =============
 async function getUserBalance(userId) {
     const res = await query('SELECT balance FROM users WHERE id = $1', [userId]);
     return res.rows[0]?.balance || 0;
@@ -242,7 +424,7 @@ async function updateUserBalance(userId, newBalance) {
     await query('UPDATE users SET balance = $1 WHERE id = $2', [newBalance, userId]);
 }
 
-// --- ТУРНИРЫ ---
+// ============= ТУРНИРЫ =============
 async function getTournaments() {
     const res = await query('SELECT * FROM tournaments ORDER BY created_at DESC');
     return res.rows.map(toCamelCase);
@@ -250,7 +432,11 @@ async function getTournaments() {
 
 async function createTournament(tournament) {
     const snakeTour = toSnakeCase(tournament);
-    const res = await query(`INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule, registered_teams) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`, [snakeTour.id, snakeTour.title, snakeTour.description, snakeTour.prize_pool, snakeTour.date, snakeTour.status, snakeTour.entry_fee, snakeTour.max_teams, snakeTour.format, snakeTour.rules, snakeTour.schedule, JSON.stringify(snakeTour.registered_teams || [])]);
+    const res = await query(`
+        INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule, registered_teams) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
+        RETURNING *
+    `, [snakeTour.id, snakeTour.title, snakeTour.description, snakeTour.prize_pool, snakeTour.date, snakeTour.status, snakeTour.entry_fee, snakeTour.max_teams, snakeTour.format, snakeTour.rules, snakeTour.schedule, JSON.stringify(snakeTour.registered_teams || [])]);
     return toCamelCase(res.rows[0]);
 }
 
@@ -258,21 +444,134 @@ async function createTournament(tournament) {
 async function initPostgresDB() {
   const client = await pool.connect();
   try {
-    await client.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, steam_id TEXT UNIQUE NOT NULL, steam_nickname TEXT NOT NULL, steam_avatar TEXT, display_name TEXT, region TEXT DEFAULT 'RU', role TEXT DEFAULT 'RIFLER', has_mic BOOLEAN DEFAULT FALSE, bio TEXT, balance INTEGER DEFAULT 1000, is_admin BOOLEAN DEFAULT FALSE, is_banned BOOLEAN DEFAULT FALSE, status TEXT DEFAULT 'online', last_seen TIMESTAMP DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW(), settings JSONB)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        steam_id TEXT UNIQUE NOT NULL,
+        steam_nickname TEXT NOT NULL,
+        steam_avatar TEXT,
+        display_name TEXT,
+        region TEXT DEFAULT 'RU',
+        role TEXT DEFAULT 'RIFLER',
+        has_mic BOOLEAN DEFAULT FALSE,
+        bio TEXT,
+        balance INTEGER DEFAULT 1000,
+        is_admin BOOLEAN DEFAULT FALSE,
+        is_banned BOOLEAN DEFAULT FALSE,
+        status TEXT DEFAULT 'online',
+        last_seen TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW(),
+        settings JSONB
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS lfg_posts (id TEXT PRIMARY KEY, author_id TEXT REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, region TEXT NOT NULL, my_role TEXT NOT NULL, schedule_type TEXT DEFAULT 'daily', schedule TEXT NOT NULL, week_schedule JSONB, players_needed INTEGER DEFAULT 1, roles_needed JSONB NOT NULL, min_faceit_level INTEGER DEFAULT 1, min_premier_rank INTEGER DEFAULT 0, description TEXT, language TEXT DEFAULT 'ru', status TEXT DEFAULT 'active', review JSONB, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS lfg_posts (
+        id TEXT PRIMARY KEY,
+        author_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        region TEXT NOT NULL,
+        my_role TEXT NOT NULL,
+        schedule_type TEXT DEFAULT 'daily',
+        schedule TEXT NOT NULL,
+        week_schedule JSONB,
+        players_needed INTEGER DEFAULT 1,
+        roles_needed JSONB NOT NULL,
+        min_faceit_level INTEGER DEFAULT 1,
+        min_premier_rank INTEGER DEFAULT 0,
+        description TEXT,
+        language TEXT DEFAULT 'ru',
+        team_members JSONB DEFAULT '[]',
+        status TEXT DEFAULT 'active',
+        review JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS lfg_responses (id TEXT PRIMARY KEY, post_id TEXT REFERENCES lfg_posts(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, message TEXT, status TEXT DEFAULT 'pending', read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS lfg_responses (
+        id TEXT PRIMARY KEY,
+        post_id TEXT REFERENCES lfg_posts(id) ON DELETE CASCADE,
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        message TEXT,
+        status TEXT DEFAULT 'pending',
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS friends (user_id TEXT REFERENCES users(id) ON DELETE CASCADE, friend_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, friend_id))`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data JSONB,
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS friend_requests (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'pending')`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS friends (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        friend_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, friend_id)
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL, read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        id TEXT PRIMARY KEY,
+        from_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        to_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        status TEXT DEFAULT 'pending'
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS tournaments (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, prize_pool TEXT, date TIMESTAMP, status TEXT DEFAULT 'UPCOMING', entry_fee INTEGER DEFAULT 0, max_teams INTEGER DEFAULT 16, registered_teams JSONB, format TEXT, rules TEXT, schedule TEXT, created_at TIMESTAMP DEFAULT NOW())`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        from_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        to_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     
-    await client.query(`CREATE TABLE IF NOT EXISTS banned_users (user_id TEXT REFERENCES users(id) ON DELETE CASCADE, banned_until TIMESTAMP, reason TEXT, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id))`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tournaments (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        prize_pool TEXT,
+        date TIMESTAMP,
+        status TEXT DEFAULT 'UPCOMING',
+        entry_fee INTEGER DEFAULT 0,
+        max_teams INTEGER DEFAULT 16,
+        registered_teams JSONB,
+        format TEXT,
+        rules TEXT,
+        schedule TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS banned_users (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        banned_until TIMESTAMP,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id)
+      )
+    `);
     
     console.log('✅ PostgreSQL tables created/verified');
   } catch (err) {
@@ -323,19 +622,48 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         if (!user) {
             const userCountRes = await query('SELECT COUNT(*) FROM users');
             const isFirstUser = parseInt(userCountRes.rows[0].count) === 0;
-            const newUser = { id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, steamId: steamId, steamNickname: steamUser.personaname, steamAvatar: steamUser.avatarfull, displayName: steamUser.personaname, region: 'RU', role: 'RIFLER', hasMic: false, bio: '', balance: 1000, isAdmin: isFirstUser, isBanned: false };
+            const newUser = { 
+                id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, 
+                steamId: steamId, 
+                steamNickname: steamUser.personaname, 
+                steamAvatar: steamUser.avatarfull, 
+                displayName: steamUser.personaname, 
+                region: 'RU', 
+                role: 'RIFLER', 
+                hasMic: false, 
+                bio: '', 
+                balance: 1000, 
+                isAdmin: isFirstUser, 
+                isBanned: false 
+            };
             user = await createUser(newUser);
+            
             const tournamentCountRes = await query('SELECT COUNT(*) FROM tournaments');
             if (parseInt(tournamentCountRes.rows[0].count) === 0) {
-                await createTournament({ id: `tourn_${Date.now()}`, title: 'BARSIDE CUP #1', description: 'Главный турнир сезона', prizePool: '50000₽', date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), status: 'UPCOMING', entryFee: 500, maxTeams: 16, format: '5x5', rules: '1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass', schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные', registeredTeams: [] });
+                await createTournament({ 
+                    id: `tourn_${Date.now()}`, 
+                    title: 'BARSIDE CUP #1', 
+                    description: 'Главный турнир сезона', 
+                    prizePool: '50000₽', 
+                    date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), 
+                    status: 'UPCOMING', 
+                    entryFee: 500, 
+                    maxTeams: 16, 
+                    format: '5x5', 
+                    rules: '1. Формат Best of 3\n2. Карты: Dust2, Mirage, Inferno, Nuke, Overpass', 
+                    schedule: 'Групповой этап: первые выходные\nПлей-офф: следующие выходные', 
+                    registeredTeams: [] 
+                });
             }
         } else {
-            await updateUser(steamId, { steamNickname: steamUser.personaname, steamAvatar: steamUser.avatarfull });
+            await updateUser(steamId, { 
+                steamNickname: steamUser.personaname, 
+                steamAvatar: steamUser.avatarfull 
+            });
             user = await findUserBySteamId(steamId);
         }
         
-        const banInfo = await isUserBanned(user.id);
-        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId, isBanned: !!banInfo })).toString('base64');
+        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steamId })).toString('base64');
         res.cookie('auth_token', sessionToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
         res.redirect(`${FRONTEND_URL}/`);
     } catch (error) {
@@ -373,7 +701,8 @@ app.get('/api/profile/:steamId', async (req, res) => {
     try {
         const user = await findUserBySteamId(req.params.steamId);
         if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json({ user });
+        const banned = await isUserBanned(user.id);
+        res.json({ user: { ...user, isBanned: banned } });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -433,7 +762,12 @@ app.get('/api/stats', async (req, res) => {
         const usersRes = await query('SELECT COUNT(*) FROM users');
         const lfgRes = await query("SELECT COUNT(*) FROM lfg_posts WHERE status = 'active'");
         const tournamentsRes = await query('SELECT COUNT(*) FROM tournaments');
-        res.json({ totalUsers: parseInt(usersRes.rows[0].count), totalLfgPosts: parseInt(lfgRes.rows[0].count), totalTournaments: parseInt(tournamentsRes.rows[0].count), online: onlineSessions.size });
+        res.json({ 
+            totalUsers: parseInt(usersRes.rows[0].count), 
+            totalLfgPosts: parseInt(lfgRes.rows[0].count), 
+            totalTournaments: parseInt(tournamentsRes.rows[0].count), 
+            online: onlineSessions.size 
+        });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -459,8 +793,6 @@ app.post('/api/lfg', checkBanned, async (req, res) => {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         const user = await findUserById(payload.userId);
         if (!user) return res.status(401).json({ error: 'User not found' });
-        
-        console.log('Received LFG data:', req.body);
         
         const { title, region, myRole, scheduleType, schedule, weekSchedule, playersNeeded, rolesNeeded, minFaceitLevel, minPremierRank, description, language } = req.body;
         
@@ -490,14 +822,106 @@ app.post('/api/lfg', checkBanned, async (req, res) => {
             language: language || 'ru'
         };
         
-        console.log('Creating post:', newPost);
-        
         const created = await createLfgPost(newPost);
         res.status(201).json({ data: created });
     } catch (err) { 
         console.error('Error creating LFG post:', err);
         res.status(500).json({ error: 'Internal server error: ' + err.message }); 
     }
+});
+
+app.post('/api/lfg/:postId/respond', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const { role, message } = req.body;
+        const response = await addResponseToLfg(req.params.postId, user.id, role, message);
+        res.status(201).json({ data: response });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.get('/api/lfg/:postId/responses', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [req.params.postId]);
+        if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
+        if (postRes.rows[0].author_id !== user.id && !user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+        
+        const responses = await getLfgResponses(req.params.postId);
+        res.json({ data: responses });
+    } catch (err) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/lfg/:postId/responses/:responseId/accept', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        await acceptResponse(req.params.postId, req.params.responseId, user.id);
+        res.json({ success: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/lfg/:postId/responses/:responseId/reject', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        await rejectResponse(req.params.postId, req.params.responseId, user.id);
+        res.json({ success: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/lfg/:postId/complete', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        await completeLfgPost(req.params.postId, user.id);
+        res.json({ success: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/lfg/:postId/review', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const { rating, comment } = req.body;
+        await addReviewToLfg(req.params.postId, user.id, rating, comment);
+        res.json({ success: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.get('/api/lfg/responses/unread', checkBanned, async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.json({ count: 0 });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const count = await getUnreadResponsesCount(payload.userId);
+        res.json({ count });
+    } catch (err) { res.json({ count: 0 }); }
 });
 
 app.delete('/api/lfg/:id', checkBanned, async (req, res) => {
@@ -700,7 +1124,8 @@ app.get('/api/admin/users', checkBanned, async (req, res) => {
         const user = await findUserById(payload.userId);
         if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
         const users = await getAllUsers();
-        res.json({ data: users });
+        const usersWithBan = await Promise.all(users.map(async u => ({ ...u, isBanned: await isUserBanned(u.id) })));
+        res.json({ data: usersWithBan });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -710,8 +1135,8 @@ app.get('/api/admin/banned-users', checkBanned, async (req, res) => {
     const payload = JSON.parse(Buffer.from(token, 'base64').toString());
     const currentUser = await findUserById(payload.userId);
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    const bannedUsers = await query('SELECT * FROM banned_users');
-    res.json({ data: bannedUsers.rows });
+    const bannedUsers = await getAllBannedUsers();
+    res.json({ data: bannedUsers });
 });
 
 app.post('/api/admin/unban/:userId', checkBanned, async (req, res) => {
@@ -720,7 +1145,7 @@ app.post('/api/admin/unban/:userId', checkBanned, async (req, res) => {
     const payload = JSON.parse(Buffer.from(token, 'base64').toString());
     const currentUser = await findUserById(payload.userId);
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-    await query('DELETE FROM banned_users WHERE user_id = $1', [req.params.userId]);
+    await unbanUser(req.params.userId);
     res.json({ success: true });
 });
 
@@ -732,8 +1157,7 @@ app.post('/api/admin/ban', checkBanned, async (req, res) => {
     if (!currentUser?.isAdmin) return res.status(403).json({ error: 'Admin only' });
     const { userId, reason, durationMinutes } = req.body;
     if (!userId || !reason) return res.status(400).json({ error: 'Missing userId or reason' });
-    const bannedUntil = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000) : null;
-    await query(`INSERT INTO banned_users (user_id, reason, banned_until) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET reason = $2, banned_until = $3`, [userId, reason, bannedUntil]);
+    await banUser(userId, reason, durationMinutes || null);
     res.json({ success: true });
 });
 
@@ -747,8 +1171,15 @@ app.get('/api/admin/search', checkBanned, async (req, res) => {
         const { query: searchTerm } = req.query;
         if (!searchTerm) return res.json({ data: [] });
         const users = await getAllUsers();
-        const filtered = users.filter(u => (u.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) || (u.steamNickname || '').toLowerCase().includes(searchTerm.toLowerCase()));
-        res.json({ data: filtered });
+        const filtered = users.filter(u => 
+            (u.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+            (u.steamNickname || '').toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        const result = await Promise.all(filtered.map(async u => ({
+            ...u,
+            isBanned: await isUserBanned(u.id)
+        })));
+        res.json({ data: result });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -763,11 +1194,25 @@ app.get('/api/inventory/:steamId', async (req, res) => {
             const descriptions = response.data.descriptions || [];
             const items = assets.map(asset => {
                 const description = descriptions.find(d => d.classid === asset.classid && d.instanceid === asset.instanceid);
-                return { assetid: asset.assetid, classid: asset.classid, name: description?.market_hash_name || description?.name || 'Unknown Item', icon: description?.icon_url ? `https://steamcommunity-a.akamaihd.net/economy/image/${description.icon_url}` : null, type: description?.type || 'Unknown', rarity: description?.tags?.find(t => t.category === 'Rarity')?.localized_tag_name || 'Common', tradable: description?.tradable || false, marketable: description?.marketable || false, quantity: asset.amount || 1 };
+                return { 
+                    assetid: asset.assetid, 
+                    classid: asset.classid, 
+                    name: description?.market_hash_name || description?.name || 'Unknown Item', 
+                    icon: description?.icon_url ? `https://steamcommunity-a.akamaihd.net/economy/image/${description.icon_url}` : null, 
+                    type: description?.type || 'Unknown', 
+                    rarity: description?.tags?.find(t => t.category === 'Rarity')?.localized_tag_name || 'Common', 
+                    tradable: description?.tradable || false, 
+                    marketable: description?.marketable || false, 
+                    quantity: asset.amount || 1 
+                };
             });
             res.json({ success: true, total: response.data.total_inventory_count || items.length, items: items });
-        } else { res.json({ success: false, error: 'Inventory is private', items: [], total: 0 }); }
-    } catch (error) { res.json({ success: false, error: 'Failed to fetch inventory', items: [], total: 0 }); }
+        } else { 
+            res.json({ success: false, error: 'Inventory is private', items: [], total: 0 }); 
+        }
+    } catch (error) { 
+        res.json({ success: false, error: 'Failed to fetch inventory', items: [], total: 0 }); 
+    }
 });
 
 // ============= ТУРНИРЫ =============
@@ -784,29 +1229,12 @@ app.get('/healthz', (req, res) => { res.status(200).json({ status: 'ok' }); });
 // ============= СТАТИКА =============
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
 
-// ВРЕМЕННЫЙ МАРШРУТ ДЛЯ ОЧИСТКИ - ТОЛЬКО ДЛЯ АДМИНА
-app.get('/api/admin/clear-lfg', async (req, res) => {
-    const token = req.cookies.auth_token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-        const user = await findUserById(payload.userId);
-        if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
-        
-        await query('DELETE FROM lfg_responses');
-        await query('DELETE FROM lfg_posts');
-        
-        res.json({ success: true, message: 'All LFG posts and responses have been deleted' });
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
-});
-
 // ============= ЗАПУСК =============
 async function startServer() {
     await initPostgresDB();
     app.listen(PORT, () => {
         console.log(`\n🚀 BARSIDE CS2 Server running on port ${PORT}`);
+        console.log(`📍 API URL: https://barside-api.onrender.com`);
         console.log(`🐘 PostgreSQL: ${process.env.DB_HOST ? 'Connected' : 'Not configured!'}`);
     });
 }
