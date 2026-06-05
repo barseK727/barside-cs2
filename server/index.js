@@ -251,23 +251,28 @@ async function initPostgresDB() {
   const client = await pool.connect();
   try {
     await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        steam_id TEXT UNIQUE NOT NULL,
-        steam_nickname TEXT NOT NULL,
-        steam_avatar TEXT,
-        display_name TEXT,
-        region TEXT DEFAULT 'RU',
-        role TEXT DEFAULT 'RIFLER',
-        has_mic BOOLEAN DEFAULT FALSE,
-        bio TEXT,
-        balance INTEGER DEFAULT 1000,
-        is_admin BOOLEAN DEFAULT FALSE,
-        is_banned BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        settings JSONB
-      )
-    `);
+        CREATE TABLE IF NOT EXISTS lfg_posts (
+            id TEXT PRIMARY KEY,
+            author_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            region TEXT NOT NULL,
+            my_role TEXT NOT NULL,
+            schedule_type TEXT DEFAULT 'daily',
+            schedule TEXT NOT NULL,
+            week_schedule JSONB,
+            players_needed INTEGER DEFAULT 1,
+            roles_needed JSONB NOT NULL,
+            min_faceit_level INTEGER DEFAULT 1,
+            min_premier_rank INTEGER DEFAULT 0,
+            description TEXT,
+            language TEXT DEFAULT 'ru',
+            status TEXT DEFAULT 'active',
+            review JSONB,
+            team_members JSONB DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT NOW(),
+            completed_at TIMESTAMP
+        )
+        `);
     
     await client.query(`
       CREATE TABLE IF NOT EXISTS lfg_posts (
@@ -784,6 +789,27 @@ app.get('/healthz', (req, res) => { res.status(200).json({ status: 'ok' }); });
 
 // ============= СТАТИКА =============
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
+
+// ВРЕМЕННЫЙ МАРШРУТ ДЛЯ ОБНОВЛЕНИЯ ТАБЛИЦЫ
+app.get('/api/admin/fix-lfg-table', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+        
+        await query(`ALTER TABLE lfg_posts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
+        await query(`ALTER TABLE lfg_posts ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
+        await query(`ALTER TABLE lfg_posts ADD COLUMN IF NOT EXISTS review JSONB`);
+        await query(`ALTER TABLE lfg_posts ADD COLUMN IF NOT EXISTS team_members JSONB DEFAULT '[]'`);
+        await query(`ALTER TABLE lfg_responses ADD COLUMN IF NOT EXISTS read BOOLEAN DEFAULT FALSE`);
+        
+        res.json({ success: true, message: 'Table fixed!' });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
+});
 
 // ============= ЗАПУСК =============
 async function startServer() {
