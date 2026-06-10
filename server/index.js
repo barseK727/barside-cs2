@@ -1049,7 +1049,6 @@ app.post('/api/payments/create', async (req, res) => {
         
         const { amount, returnUrl } = req.body;
         
-        // Проверки
         const minAmount = 100;
         const maxAmount = 100000;
         if (!amount || amount < minAmount || amount > maxAmount) {
@@ -1059,7 +1058,6 @@ app.post('/api/payments/create', async (req, res) => {
         const idempotenceKey = uuidv4();
         const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         
-        // Сохраняем информацию о платеже в БД
         await query(`
             CREATE TABLE IF NOT EXISTS payments (
                 id TEXT PRIMARY KEY,
@@ -1077,7 +1075,6 @@ app.post('/api/payments/create', async (req, res) => {
             [paymentId, user.id, amount, 'pending']
         );
         
-        // Создаём платеж в ЮKassa
         const payment = await yooKassa.createPayment({
             amount: {
                 value: amount.toString(),
@@ -1097,7 +1094,6 @@ app.post('/api/payments/create', async (req, res) => {
             }
         }, idempotenceKey);
         
-        // Обновляем запись с yookassa_id
         await query('UPDATE payments SET yookassa_id = $1 WHERE id = $2', [payment.id, paymentId]);
         
         res.json({
@@ -1117,12 +1113,10 @@ app.post('/api/payments/webhook', async (req, res) => {
     try {
         const event = req.body;
         
-        // Проверяем, что это событие от ЮKassa
         if (event.object && event.object.status) {
             const yookassaId = event.object.id;
             const paymentStatus = event.object.status;
             
-            // Находим платеж в БД
             const paymentRes = await query('SELECT * FROM payments WHERE yookassa_id = $1', [yookassaId]);
             
             if (paymentRes.rows.length === 0) {
@@ -1132,22 +1126,18 @@ app.post('/api/payments/webhook', async (req, res) => {
             
             const payment = paymentRes.rows[0];
             
-            // Если платеж уже обработан
             if (payment.status !== 'pending') {
                 return res.status(200).send('OK');
             }
             
             if (paymentStatus === 'succeeded') {
-                // Платеж успешен - начисляем баланс
                 await query('UPDATE payments SET status = $1, completed_at = NOW() WHERE id = $2', ['completed', payment.id]);
                 
-                // Обновляем баланс пользователя
                 const currentBalance = await getUserBalance(payment.user_id);
                 await updateUserBalance(payment.user_id, currentBalance + payment.amount);
                 
                 console.log(`✅ Payment succeeded: ${payment.id}, user: ${payment.user_id}, amount: ${payment.amount}`);
             } else if (paymentStatus === 'canceled') {
-                // Платеж отменен
                 await query('UPDATE payments SET status = $1 WHERE id = $2', ['canceled', payment.id]);
                 console.log(`❌ Payment canceled: ${payment.id}`);
             }
@@ -1156,7 +1146,7 @@ app.post('/api/payments/webhook', async (req, res) => {
         res.status(200).send('OK');
     } catch (err) {
         console.error('Webhook error:', err);
-        res.status(200).send('OK'); // Всегда возвращаем 200 для ЮKassa
+        res.status(200).send('OK');
     }
 });
 
