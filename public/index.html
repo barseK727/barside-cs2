@@ -218,7 +218,13 @@
             if (!authSection) return;
             
             if (currentUser) {
-                authSection.innerHTML = `<a href="#" class="profile-btn" data-page="profile" data-steamid="${currentUser.steamId}"><img src="${currentUser.steamAvatar}" class="profile-avatar-small"><div style="display: flex; flex-direction: column; align-items: flex-start;"><span class="profile-name">${escapeHtml(currentUser.displayName || currentUser.steamNickname)}</span><span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;"><i class="fas fa-coins"></i> <span id="header-balance">0</span> ₽</span></div><span class="profile-arrow">→</span></a>`;
+                authSection.innerHTML =  `<span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;">
+                        <i class="fas fa-coins"></i> 
+                        <span id="header-balance">0</span> ₽
+                        <button onclick="showTopupModal()" style="background: none; border: none; color: #4cff00; cursor: pointer; margin-left: 5px;" title="Пополнить баланс">
+                            <i class="fas fa-plus-circle"></i>
+                        </button>
+                    </span>`;
                 const profileBtn = document.querySelector('[data-page="profile"]');
                 if (profileBtn) {
                     profileBtn.addEventListener('click', (e) => { e.preventDefault(); navigate('profile', { id: currentUser.steamId }); });
@@ -1024,6 +1030,181 @@
         }
         
         init();
+
+        window.showTopupModal = function() {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '10001';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 450px;">
+                    <div class="modal-header">
+                        <h2 class="text-green">💰 Пополнение баланса</h2>
+                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+                    </div>
+                    <div style="padding: 10px 0 20px 0;">
+                        <div class="form-group">
+                            <label>Сумма пополнения (₽)</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-outline topup-amount" data-amount="100">100 ₽</button>
+                                <button type="button" class="btn btn-outline topup-amount" data-amount="500">500 ₽</button>
+                                <button type="button" class="btn btn-outline topup-amount" data-amount="1000">1 000 ₽</button>
+                                <button type="button" class="btn btn-outline topup-amount" data-amount="5000">5 000 ₽</button>
+                            </div>
+                            <div class="flex" style="gap: 10px;">
+                                <input type="number" id="custom-amount" class="form-input" placeholder="Своя сумма (от 100)" min="100" max="100000" step="100">
+                                <button id="set-custom-amount" class="btn btn-outline">Установить</button>
+                            </div>
+                            <p class="text-gray" style="font-size: 11px; margin-top: 8px;">Минимум: 100 ₽, максимум: 100 000 ₽</p>
+                        </div>
+                        <div id="topup-error" style="color: #f44336; font-size: 12px; margin: 10px 0; display: none;"></div>
+                        <div style="display: flex; gap: 12px; margin-top: 20px;">
+                            <button class="btn" style="flex: 1; background: #555;" onclick="this.closest('.modal-overlay').remove()">Отмена</button>
+                            <button id="pay-button" class="btn btn-primary" style="flex: 1;">💳 Оплатить</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            let selectedAmount = null;
+            
+            // Обработка предустановленных сумм
+            document.querySelectorAll('.topup-amount').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.topup-amount').forEach(b => b.classList.remove('btn-primary'));
+                    btn.classList.add('btn-primary');
+                    selectedAmount = parseInt(btn.getAttribute('data-amount'));
+                    document.getElementById('custom-amount').value = '';
+                    document.getElementById('topup-error').style.display = 'none';
+                };
+            });
+            
+            // Обработка кастомной суммы
+            document.getElementById('set-custom-amount').onclick = () => {
+                const custom = parseInt(document.getElementById('custom-amount').value);
+                if (custom && custom >= 100 && custom <= 100000) {
+                    document.querySelectorAll('.topup-amount').forEach(b => b.classList.remove('btn-primary'));
+                    selectedAmount = custom;
+                    document.getElementById('topup-error').style.display = 'none';
+                } else {
+                    document.getElementById('topup-error').textContent = 'Введите сумму от 100 до 100 000 ₽';
+                    document.getElementById('topup-error').style.display = 'block';
+                }
+            };
+            
+            // Оплата
+            document.getElementById('pay-button').onclick = async () => {
+                if (!selectedAmount) {
+                    document.getElementById('topup-error').textContent = 'Выберите или введите сумму';
+                    document.getElementById('topup-error').style.display = 'block';
+                    return;
+                }
+                
+                const payBtn = document.getElementById('pay-button');
+                const originalText = payBtn.innerHTML;
+                payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Обработка...';
+                payBtn.disabled = true;
+                
+                try {
+                    const res = await api.post('/payments/create', {
+                        amount: selectedAmount,
+                        returnUrl: window.location.href
+                    });
+                    
+                    if (res.data.success && res.data.confirmationUrl) {
+                        // Открываем страницу оплаты ЮKassa
+                        window.open(res.data.confirmationUrl, '_blank');
+                        modal.remove();
+                        showToast(`Платёж на ${selectedAmount} ₽ создан. Откроется страница оплаты.`, 'info');
+                        
+                        // Запускаем проверку статуса
+                        checkPaymentStatus(res.data.paymentId);
+                    }
+                } catch (err) {
+                    showToast(err.response?.data?.error || 'Ошибка при создании платежа', 'error');
+                    payBtn.innerHTML = originalText;
+                    payBtn.disabled = false;
+                }
+            };
+        };
+
+        // Проверка статуса платежа
+        async function checkPaymentStatus(paymentId) {
+            let attempts = 0;
+            const maxAttempts = 60; // 5 минут (по 5 секунд)
+            
+            const interval = setInterval(async () => {
+                attempts++;
+                try {
+                    const res = await api.get(`/payments/${paymentId}/status`);
+                    
+                    if (res.data.status === 'completed') {
+                        clearInterval(interval);
+                        showToast(`✅ Баланс пополнен на ${res.data.amount} ₽!`, 'success');
+                        loadBalance(); // Обновляем баланс в шапке
+                        
+                        // Обновляем страницу, если на профиле
+                        if (currentPage === 'profile' && currentUser) {
+                            renderProfile(currentUser.steamId);
+                        }
+                    } else if (res.data.status === 'canceled') {
+                        clearInterval(interval);
+                        showToast('❌ Платёж был отменён', 'error');
+                    }
+                } catch (err) {
+                    // Игнорируем ошибки
+                }
+                
+                if (attempts >= maxAttempts) {
+                    clearInterval(interval);
+                    showToast('⏰ Время проверки истекло. Проверьте баланс позже.', 'info');
+                }
+            }, 5000);
+        }
+
+        // Обновляем существующую функцию loadBalance
+        async function loadBalance() {
+            if (!currentUser) return;
+            try {
+                const res = await api.get('/balance');
+                const balanceSpan = document.getElementById('header-balance');
+                if (balanceSpan) balanceSpan.textContent = res.data.balance || 0;
+            } catch(e) {}
+        }
+
+        // Обновляем updateAuthUI, чтобы добавить кнопку пополнения
+        function updateAuthUI() {
+            const authSection = document.getElementById('auth-section');
+            const adminLink = document.getElementById('admin-link');
+            if (!authSection) return;
+            
+            if (currentUser) {
+                authSection.innerHTML = `
+                    <a href="#" class="profile-btn" data-page="profile" data-steamid="${currentUser.steamId}">
+                        <img src="${currentUser.steamAvatar}" class="profile-avatar-small">
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                            <span class="profile-name">${escapeHtml(currentUser.displayName || currentUser.steamNickname)}</span>
+                            <span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;">
+                                <i class="fas fa-coins"></i> 
+                                <span id="header-balance">${currentUser.balance || 0}</span> ₽
+                                <button onclick="showTopupModal()" style="background: none; border: none; color: #4cff00; cursor: pointer; margin-left: 5px; font-size: 10px;" title="Пополнить баланс">
+                                    <i class="fas fa-plus-circle"></i>
+                                </button>
+                            </span>
+                        </div>
+                        <span class="profile-arrow">→</span>
+                    </a>
+                `;
+                const profileBtn = document.querySelector('[data-page="profile"]');
+                if (profileBtn) {
+                    profileBtn.addEventListener('click', (e) => { e.preventDefault(); navigate('profile', { id: currentUser.steamId }); });
+                }
+                if (adminLink) adminLink.style.display = currentUser.isAdmin ? 'flex' : 'none';
+            } else {
+                authSection.innerHTML = `<a href="/api/auth/steam" class="btn btn-primary"><i class="fab fa-steam"></i> Войти через Steam</a>`;
+                if (adminLink) adminLink.style.display = 'none';
+            }
+        }
     </script>
 </body>
 </html>

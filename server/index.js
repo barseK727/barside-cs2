@@ -18,9 +18,6 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// В начало файла, после других require
-const { v4: uuidv4 } = require('uuid');
-
 // Инициализация ЮKassa
 let yooKassa = null;
 if (process.env.YKASSA_SHOP_ID && process.env.YKASSA_SECRET_KEY) {
