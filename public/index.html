@@ -13,6 +13,9 @@
     <style>
         .page { display: none; }
         .page.active { display: block; }
+        .loading-spinner { text-align: center; padding: 50px; }
+        .loading-spinner i { font-size: 48px; color: var(--primary); animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .role-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; }
         .role-IGL { background: #ffd70020; color: #ffd700; border: 1px solid #ffd70040; }
         .role-AWP { background: #4caf5020; color: #4caf50; border: 1px solid #4caf5040; }
@@ -29,14 +32,14 @@
         .response-card { background: rgba(255,255,255,0.03); border-radius: 16px; padding: 15px; margin-bottom: 12px; }
         .response-card:hover { background: rgba(255,255,255,0.06); }
         .stars { display: inline-flex; gap: 4px; cursor: pointer; }
-        .star { font-size: 20px; color: #555; cursor: pointer; }
+        .star { font-size: 20px; color: #555; cursor: pointer; transition: color 0.1s; }
         .star.active { color: #ffd700; }
         .custom-select { position: relative; width: 100%; }
         .custom-select-trigger { background: rgba(255,255,255,0.05); border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .custom-select-trigger:hover { border-color: var(--primary); }
         .custom-select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #1a1a24; border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; margin-top: 5px; z-index: 100; max-height: 250px; overflow-y: auto; display: none; }
         .custom-select.open .custom-select-dropdown { display: block; }
-        .custom-select-option { padding: 12px 18px; cursor: pointer; }
+        .custom-select-option { padding: 12px 18px; cursor: pointer; transition: background 0.2s; }
         .custom-select-option:hover { background: rgba(76,0,255,0.15); }
         .custom-select-option.selected { background: rgba(76,0,255,0.3); color: var(--primary-light); }
         .weekday-schedule { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
@@ -49,6 +52,8 @@
         .char-counter.danger { color: #f44336; }
         .compact-friend { padding: 10px 15px !important; }
         .compact-friend img { width: 40px !important; height: 40px !important; }
+        .clickable { cursor: pointer; transition: opacity 0.2s; }
+        .clickable:hover { opacity: 0.8; }
     </style>
 </head>
 <body>
@@ -75,21 +80,37 @@
         </div>
     </header>
 
-    <div id="app" style="padding-top: 40px;"></div>
+    <div id="app" style="padding-top: 40px;">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i><p>Загрузка...</p></div>
+    </div>
 
     <script>
+        // ==================== КОНФИГУРАЦИЯ ====================
         const api = axios.create({
             baseURL: 'https://barside-api.onrender.com/api',
             withCredentials: true,
             headers: { 'Content-Type': 'application/json' }
         });
 
+        // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
         let currentUser = null;
         let currentPage = 'home';
+        let isLoading = false;
         let postsCache = [];
         let tournamentsCache = [];
         let responsesCache = {};
+        let friendsCache = [];
+        
+        // Флаги для предотвращения двойной загрузки
+        let isLoadingHome = false;
+        let isLoadingLfg = false;
+        let isLoadingTournaments = false;
+        let isLoadingFriends = false;
+        let isLoadingAdmin = false;
+        let isLoadingProfile = false;
+        let isLoadingChat = false;
 
+        // ==================== УТИЛИТЫ ====================
         function showToast(message, type = 'success', title = '') {
             const container = document.getElementById('toast-container');
             if (!container) return;
@@ -118,20 +139,39 @@
             catch(e) { return ''; }
         }
 
+        function formatDate(dateStr) {
+            try { return new Date(dateStr).toLocaleDateString('ru-RU'); } 
+            catch(e) { return ''; }
+        }
+
         function customConfirm(message) {
             return new Promise((resolve) => {
                 const modal = document.createElement('div');
                 modal.className = 'modal-overlay';
+                modal.style.zIndex = '10001';
                 modal.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Подтверждение</h2><button class="modal-close" id="confirm-close">✕</button></div><p style="margin-bottom: 25px; color: #ccc;">${message}</p><div class="flex" style="justify-content: flex-end; gap: 12px;"><button id="confirm-cancel" class="btn" style="background: #555;">Отмена</button><button id="confirm-ok" class="btn btn-green">Да, подтверждаю</button></div></div>`;
                 document.body.appendChild(modal);
-                modal.querySelector('#confirm-close').onclick = () => { resolve(false); modal.remove(); };
-                modal.querySelector('#confirm-cancel').onclick = () => { resolve(false); modal.remove(); };
-                modal.querySelector('#confirm-ok').onclick = () => { resolve(true); modal.remove(); };
-                modal.onclick = (e) => { if (e.target === modal) { resolve(false); modal.remove(); } };
+                const close = () => modal.remove();
+                modal.querySelector('#confirm-close').onclick = () => { resolve(false); close(); };
+                modal.querySelector('#confirm-cancel').onclick = () => { resolve(false); close(); };
+                modal.querySelector('#confirm-ok').onclick = () => { resolve(true); close(); };
+                modal.onclick = (e) => { if (e.target === modal) { resolve(false); close(); } };
             });
         }
 
+        function showLoading() {
+            const app = document.getElementById('app');
+            if (app) app.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i><p>Загрузка...</p></div>';
+        }
+
+        function showError(message) {
+            const app = document.getElementById('app');
+            if (app) app.innerHTML = `<div class="container"><div class="card text-center" style="color: #f44336;"><i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i><p>${message}</p><button class="btn btn-primary" style="margin-top: 16px;" onclick="location.reload()">Обновить страницу</button></div></div>`;
+        }
+
+        // ==================== НАВИГАЦИЯ ====================
         function navigate(page, params = {}) {
+            if (isLoading) return;
             currentPage = page;
             let url = `/${page}`;
             if (page === 'profile' && params.id) url = `/profile/${params.id}`;
@@ -141,8 +181,13 @@
             renderPage();
         }
 
+        // ==================== ОНЛАЙН СЧЁТЧИК ====================
         async function updateOnlineCount() {
-            try { const res = await api.get('/online'); document.getElementById('online-count').textContent = res.data.count; } catch(e) {}
+            try {
+                const res = await api.get('/online');
+                const countEl = document.getElementById('online-count');
+                if (countEl) countEl.textContent = res.data.count || 0;
+            } catch(e) {}
         }
 
         async function sendHeartbeat() {
@@ -151,70 +196,102 @@
             try { await api.post('/heartbeat', { sessionId }); } catch(e) {}
         }
 
+        // ==================== АВТОРИЗАЦИЯ ====================
         async function loadAuth() {
             try {
                 const res = await api.get('/auth/me');
                 currentUser = res.data.data;
                 updateAuthUI();
-                if (currentUser) { loadUnreadCounts(); loadBalance(); }
-            } catch(e) { currentUser = null; updateAuthUI(); }
+                if (currentUser) {
+                    loadUnreadCounts();
+                    loadBalance();
+                }
+            } catch(e) { 
+                currentUser = null; 
+                updateAuthUI(); 
+            }
         }
 
         function updateAuthUI() {
             const authSection = document.getElementById('auth-section');
             const adminLink = document.getElementById('admin-link');
+            if (!authSection) return;
+            
             if (currentUser) {
                 authSection.innerHTML = `<a href="#" class="profile-btn" data-page="profile" data-steamid="${currentUser.steamId}"><img src="${currentUser.steamAvatar}" class="profile-avatar-small"><div style="display: flex; flex-direction: column; align-items: flex-start;"><span class="profile-name">${escapeHtml(currentUser.displayName || currentUser.steamNickname)}</span><span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;"><i class="fas fa-coins"></i> <span id="header-balance">0</span> ₽</span></div><span class="profile-arrow">→</span></a>`;
-                document.querySelector('[data-page="profile"]')?.addEventListener('click', (e) => { e.preventDefault(); navigate('profile', { id: currentUser.steamId }); });
-                adminLink.style.display = currentUser.isAdmin ? 'flex' : 'none';
+                const profileBtn = document.querySelector('[data-page="profile"]');
+                if (profileBtn) {
+                    profileBtn.addEventListener('click', (e) => { e.preventDefault(); navigate('profile', { id: currentUser.steamId }); });
+                }
+                if (adminLink) adminLink.style.display = currentUser.isAdmin ? 'flex' : 'none';
             } else {
                 authSection.innerHTML = `<a href="/api/auth/steam" class="btn btn-primary"><i class="fab fa-steam"></i> Войти через Steam</a>`;
-                adminLink.style.display = 'none';
+                if (adminLink) adminLink.style.display = 'none';
             }
         }
 
         async function loadBalance() {
             if (!currentUser) return;
-            try { const res = await api.get('/balance'); document.getElementById('header-balance').textContent = res.data.balance; } catch(e) {}
+            try {
+                const res = await api.get('/balance');
+                const balanceSpan = document.getElementById('header-balance');
+                if (balanceSpan) balanceSpan.textContent = res.data.balance || 0;
+            } catch(e) {}
         }
 
         async function loadUnreadCounts() {
+            if (!currentUser) return;
             try {
                 const msgRes = await api.get('/messages/unread/count');
-                const badge = document.getElementById('unread-badge');
-                if (msgRes.data.count > 0) { badge.style.display = 'inline'; badge.textContent = msgRes.data.count; } 
-                else { badge.style.display = 'none'; }
+                const msgBadge = document.getElementById('unread-badge');
+                if (msgBadge) {
+                    if (msgRes.data.count > 0) { msgBadge.style.display = 'inline'; msgBadge.textContent = msgRes.data.count; } 
+                    else { msgBadge.style.display = 'none'; }
+                }
             } catch(e) {}
             try {
                 const respRes = await api.get('/lfg/responses/unread');
-                const badge = document.getElementById('response-badge');
-                if (respRes.data.count > 0) { badge.style.display = 'inline'; badge.textContent = respRes.data.count; } 
-                else { badge.style.display = 'none'; }
+                const respBadge = document.getElementById('response-badge');
+                if (respBadge) {
+                    if (respRes.data.count > 0) { respBadge.style.display = 'inline'; respBadge.textContent = respRes.data.count; } 
+                    else { respBadge.style.display = 'none'; }
+                }
             } catch(e) {}
         }
 
+        // ==================== ОТРИСОВКА СТРАНИЦ ====================
         async function renderPage() {
-            const app = document.getElementById('app');
-            if (!app) return;
-            let html = '';
-            if (currentPage === 'home') html = await renderHome();
-            else if (currentPage === 'lfg') html = await renderLfg();
-            else if (currentPage === 'lfg-create') html = renderLfgCreate();
-            else if (currentPage === 'tournaments') html = await renderTournaments();
-            else if (currentPage === 'friends') html = await renderFriends();
-            else if (currentPage === 'admin' && currentUser?.isAdmin) html = await renderAdmin();
-            else if (currentPage.startsWith('profile/')) html = await renderProfile(currentPage.split('/profile/')[1]);
-            else if (currentPage.startsWith('chat/')) html = await renderChat(currentPage.split('/chat/')[1]);
-            else html = await renderHome();
-            app.innerHTML = html;
-            attachEvents();
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                if (currentPage === 'home') await renderHome();
+                else if (currentPage === 'lfg') await renderLfg();
+                else if (currentPage === 'lfg-create' && currentUser) renderLfgCreate();
+                else if (currentPage === 'tournaments') await renderTournaments();
+                else if (currentPage === 'friends') await renderFriends();
+                else if (currentPage === 'admin' && currentUser?.isAdmin) await renderAdmin();
+                else if (currentPage.startsWith('profile/')) await renderProfile(currentPage.split('/profile/')[1]);
+                else if (currentPage.startsWith('chat/')) await renderChat(currentPage.split('/chat/')[1]);
+                else await renderHome();
+            } catch (error) {
+                console.error('Render error:', error);
+                showError('Ошибка загрузки страницы. Пожалуйста, обновите страницу.');
+            } finally {
+                isLoading = false;
+            }
         }
 
-        // ============ ГЛАВНАЯ ============
+        // ============ ГЛАВНАЯ СТРАНИЦА ============
         async function renderHome() {
+            if (isLoadingHome) return;
+            isLoadingHome = true;
+            
             try {
-                const stats = (await api.get('/stats')).data;
-                return `
+                const statsRes = await api.get('/stats');
+                const stats = statsRes.data;
+                
+                const html = `
                     <div class="container">
                         <div style="text-align: center; padding: 60px 20px; background: linear-gradient(135deg, rgba(76,0,255,0.1), rgba(255,61,0,0.05)); border-radius: 24px; margin-bottom: 40px;">
                             <h1 style="font-size: 48px; margin-bottom: 20px; font-weight: 800;">BARSIDE <span style="background: linear-gradient(135deg, #4caf50, #8bc34a); -webkit-background-clip: text; background-clip: text; color: transparent;">CS2</span></h1>
@@ -228,7 +305,7 @@
                             <div class="stat-card"><i class="fas fa-users" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalUsers || 0}</div><div class="stat-label">Игроков</div></div>
                             <div class="stat-card"><i class="fas fa-file-alt" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalLfgPosts || 0}</div><div class="stat-label">Активных анкет</div></div>
                             <div class="stat-card"><i class="fas fa-trophy" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalTournaments || 0}</div><div class="stat-label">Турниров</div></div>
-                            <div class="stat-card"><i class="fas fa-users" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalUsers || 0}</div><div class="stat-label">В сети</div></div>
+                            <div class="stat-card"><i class="fas fa-users" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalUsers || 0}</div><div class="stat-label">Всего игроков</div></div>
                         </div>
                         <div class="card" style="text-align: center;">
                             <h2 class="text-green">Готов к соревнованиям?</h2>
@@ -239,13 +316,27 @@
                         </div>
                     </div>
                 `;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('Home error:', error);
+                showError('Не удалось загрузить главную страницу');
+            } finally {
+                isLoadingHome = false;
+            }
         }
 
         // ============ LFG СПИСОК ============
         async function renderLfg() {
+            if (isLoadingLfg) return;
+            isLoadingLfg = true;
+            showLoading();
+            
             try {
-                const [activeRes, completedRes] = await Promise.all([api.get('/lfg'), api.get('/lfg/completed')]);
+                const [activeRes, completedRes] = await Promise.all([
+                    api.get('/lfg'),
+                    api.get('/lfg/completed')
+                ]);
                 const posts = activeRes.data.data || [];
                 const completedPosts = completedRes.data.data || [];
                 postsCache = posts;
@@ -256,18 +347,18 @@
                     const rolesNeeded = post.rolesNeeded || {};
                     const availableRoles = Object.keys(rolesNeeded).filter(r => rolesNeeded[r]);
                     
-                    // Загружаем отклики для автора
+                    // Отклики для автора
                     let responsesHtml = '';
-                    if (isAuthor && responsesCache[post.id]) {
+                    if (isAuthor && responsesCache[post.id] && responsesCache[post.id].length > 0) {
                         responsesHtml = `<div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-                            <h4 class="text-green" style="margin-bottom: 10px;">Отклики:</h4>`;
+                            <h4 class="text-green" style="margin-bottom: 10px;">Отклики (${responsesCache[post.id].length}):</h4>`;
                         for (const r of responsesCache[post.id]) {
-                            responsesHtml += `<div class="response-card" style="display: flex; justify-content: space-between; align-items: center;">
+                            responsesHtml += `<div class="response-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                                 <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;" onclick="navigate('profile', { id: '${r.user?.steamId}' })">
                                     <img src="${r.user?.steamAvatar}" style="width: 36px; height: 36px; border-radius: 50%;">
                                     <div><strong>${escapeHtml(r.user?.displayName || r.user?.steamNickname)}</strong><p class="text-gray" style="font-size: 11px;">Хочет играть на <span class="role-badge role-${r.role}">${r.role}</span></p></div>
                                 </div>
-                                <div><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="acceptResponse('${post.id}', '${r.id}')">✅ Принять</button>
+                                <div style="margin-top: 8px;"><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="acceptResponse('${post.id}', '${r.id}')">✅ Принять</button>
                                 <button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px; margin-left: 5px;" onclick="rejectResponse('${post.id}', '${r.id}')">❌ Отклонить</button></div>
                             </div>`;
                         }
@@ -291,14 +382,14 @@
                             </div>
                             <div style="margin-bottom: 12px;">
                                 <p class="text-gray" style="font-size: 12px;">📅 ${escapeHtml(post.schedule)}</p>
-                                <p class="text-gray" style="font-size: 12px;">🎮 Нужны роли: ${availableRoles.map(r => `<span class="role-badge role-${r}" style="margin-right: 5px;">${r}</span>`).join('')}</p>
+                                ${availableRoles.length > 0 ? `<p class="text-gray" style="font-size: 12px;">🎮 Нужны роли: ${availableRoles.map(r => `<span class="role-badge role-${r}" style="margin-right: 5px;">${r}</span>`).join('')}</p>` : ''}
                             </div>
                             ${post.description ? `<p class="text-gray" style="font-size: 13px; margin-bottom: 12px; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 8px;">${escapeHtml(post.description)}</p>` : ''}
-                            <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
                                 ${!isAuthor && currentUser && availableRoles.length > 0 ? `<button class="btn btn-primary" style="flex: 1;" onclick="showRespondModal('${post.id}', ${JSON.stringify(availableRoles)})">📝 Откликнуться</button>` : ''}
                                 ${!isAuthor && currentUser && availableRoles.length === 0 ? `<button class="btn" style="flex: 1; background: #555;" disabled>❌ Нет свободных ролей</button>` : ''}
                                 ${!currentUser ? `<button class="btn btn-primary" style="flex: 1;" onclick="showToast('Войдите через Steam', 'info')">Войдите, чтобы откликнуться</button>` : ''}
-                                ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="loadResponses('${post.id}')">📋 Отклики</button>` : ''}
+                                ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="loadResponses('${post.id}')">📋 Отклики (${responsesCache[post.id]?.length || 0})</button>` : ''}
                                 ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="deleteLfgPost('${post.id}')">🗑 Удалить</button>` : ''}
                             </div>
                             ${responsesHtml}
@@ -316,14 +407,14 @@
                             </div>
                             <div class="flex" style="gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
                                 <span class="status-badge status-completed">✅ Команда собрана</span>
-                                <span>📅 ${new Date(post.completedAt).toLocaleDateString('ru-RU')}</span>
+                                <span>📅 ${formatDate(post.completedAt)}</span>
                             </div>
                             ${post.review ? `<div style="margin-top: 12px; padding: 10px; background: rgba(255,215,0,0.1); border-radius: 12px;"><div class="stars">${[1,2,3,4,5].map(s => `<span class="star ${s <= post.review.rating ? 'active' : ''}">★</span>`).join('')}</div><p class="text-gray" style="font-size: 12px; margin-top: 5px;">${escapeHtml(post.review.comment)}</p></div>` : ''}
                         </div>
                     `;
                 }
                 
-                return `
+                const html = `
                     <div class="container">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;">
                             <div><h1>🔍 Поиск команды</h1><p class="text-gray">Найди тиммейтов и собери команду для CS2</p></div>
@@ -337,12 +428,19 @@
                         </div>
                     </div>
                 `;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('LFG error:', error);
+                showError('Не удалось загрузить анкеты. Попробуйте обновить страницу.');
+            } finally {
+                isLoadingLfg = false;
+            }
         }
 
         // ============ СОЗДАНИЕ АНКЕТЫ ============
         function renderLfgCreate() {
-            return `
+            const html = `
                 <div class="container">
                     <div class="card" style="max-width: 800px; margin: 0 auto;">
                         <h2 class="text-green" style="margin-bottom: 20px;">📝 Создание анкеты</h2>
@@ -381,210 +479,44 @@
                     </div>
                 </div>
             `;
-        }
-
-        // ============ ТУРНИРЫ ============
-        async function renderTournaments() {
-            try {
-                const res = await api.get('/tournaments');
-                const tournaments = res.data.data || [];
-                tournamentsCache = tournaments;
-                let html = '';
-                for (const t of tournaments) {
-                    html += `<div class="tournament-card" onclick="showTournamentDetails('${t.id}')"><h3 style="color: #4caf50;">${escapeHtml(t.title)}</h3><div class="prize">💰 ${t.prizePool}</div><p>📅 ${new Date(t.date).toLocaleDateString('ru-RU')}</p><button class="btn btn-primary" style="margin-top: 12px; width: 100%;">Подробнее</button></div>`;
-                }
-                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">🏆 Турниры CS2</h1>${tournaments.length === 0 ? '<div class="card text-center">Нет турниров</div>' : `<div class="tournaments-grid">${html}</div>`}</div>`;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
-        }
-
-        // ============ ДРУЗЬЯ ============
-        async function renderFriends() {
-            if (!currentUser) return '<div class="container"><div class="card text-center">Войдите через Steam, чтобы видеть друзей</div></div>';
-            try {
-                const [friendsRes, requestsRes, sentRes] = await Promise.all([api.get('/friends'), api.get('/friends/requests'), api.get('/friends/requests/sent')]);
-                const friends = friendsRes.data.data || [];
-                const requests = requestsRes.data.data || [];
-                const sent = sentRes.data.data || [];
-                
-                let friendsHtml = '', requestsHtml = '', sentHtml = '';
-                for (const f of friends) friendsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; cursor: pointer; margin-bottom: 10px;" onclick="navigate('profile', { id: '${f.steamId}' })"><img src="${f.steamAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(f.displayName || f.steamNickname)}</h4><p class="text-muted" style="font-size: 11px;">${f.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</p></div><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); navigate('chat', { id: '${f.id}' })">💬</button><button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); removeFriend('${f.id}')">🗑</button></div>`;
-                for (const r of requests) requestsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${r.fromAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(r.fromName)}</h4></div><button class="btn btn-primary" style="padding: 6px 12px;" onclick="acceptFriendRequest('${r.id}')">✅</button><button class="btn" style="background: #555; padding: 6px 12px;" onclick="declineFriendRequest('${r.id}')">❌</button></div>`;
-                for (const s of sent) sentHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${s.toAvatar}" style="width: 40px; height: 40px; borderRadius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(s.toName)}</h4><p class="text-muted" style="font-size: 10px;">Ожидает ответа</p></div><button class="btn" style="background: #f44336; padding: 6px 12px;" onclick="cancelFriendRequest('${s.id}')">Отменить</button></div>`;
-                
-                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">👥 Друзья</h1><div class="flex" style="margin-bottom: 20px; gap: 10px;"><button class="btn btn-primary" onclick="showFriendsTab('friends')">Друзья (${friends.length})</button><button class="btn btn-outline" onclick="showFriendsTab('requests')">Входящие (${requests.length})</button><button class="btn btn-outline" onclick="showFriendsTab('sent')">Исходящие (${sent.length})</button></div><div id="friends-tab-friends">${friends.length === 0 ? '<div class="card text-center">Нет друзей</div>' : friendsHtml}</div><div id="friends-tab-requests" style="display: none;">${requests.length === 0 ? '<div class="card text-center">Нет заявок</div>' : requestsHtml}</div><div id="friends-tab-sent" style="display: none;">${sent.length === 0 ? '<div class="card text-center">Нет отправленных заявок</div>' : sentHtml}</div></div>`;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
-        }
-
-        // ============ ПРОФИЛЬ ============
-        async function renderProfile(steamId) {
-            if (!steamId) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-            try {
-                const res = await api.get(`/profile/${steamId}`);
-                const profile = res.data.user;
-                if (!profile) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-                const isOwn = currentUser?.steamId === steamId;
-                return `<div class="container"><div class="card"><div class="profile-header" style="flex-wrap: wrap;"><img src="${profile.steamAvatar}" class="profile-avatar"><div style="flex:1;"><h1>${escapeHtml(profile.displayName || profile.steamNickname)}</h1><p class="text-gray"><i class="fab fa-steam"></i> ${profile.steamNickname}</p><p class="text-muted" style="font-size: 11px;">ID: ${profile.id} | На сайте с: ${new Date(profile.createdAt).toLocaleDateString('ru-RU')}</p>${profile.isBanned ? '<p style="color: #f44336;">⚠️ Пользователь забанен</p>' : ''}<div class="flex" style="margin-top: 10px; gap: 10px;"><span class="text-green">${profile.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</span><span class="text-green">${profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'}</span>${profile.hasMic ? '<span class="text-green">🎤 Микрофон</span>' : ''}</div></div>${!isOwn && currentUser ? `<div><button class="btn btn-primary" onclick="sendFriendRequest('${profile.id}')">➕ Добавить в друзья</button></div>` : ''}</div>${profile.bio ? `<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;"><h3 class="text-green">О себе</h3><p class="text-gray">${escapeHtml(profile.bio)}</p></div>` : ''}</div></div>`;
-            } catch(e) { return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>'; }
-        }
-
-        // ============ ЧАТ ============
-        async function renderChat(userId) {
-            if (!currentUser) return '<div class="container"><div class="card text-center">Войдите через Steam</div></div>';
-            try {
-                const userRes = await api.get(`/user/by-id/${userId}`);
-                const chatUser = userRes.data.user;
-                if (!chatUser) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-                const messagesRes = await api.get(`/messages/${userId}`);
-                const messages = messagesRes.data.data || [];
-                let msgsHtml = '';
-                for (const msg of messages) {
-                    const isOwn = msg.fromId === currentUser.id;
-                    msgsHtml += `<div style="text-align: ${isOwn ? 'right' : 'left'}; margin-bottom: 15px;"><div style="display: inline-block; background: ${isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)'}; padding: 10px 14px; border-radius: 16px; max-width: 75%;"><p style="font-size: 13px; margin-bottom: 4px;">${escapeHtml(msg.text)}</p><p style="font-size: 9px; color: rgba(255,255,255,0.4);">${formatTime(msg.createdAt)}</p></div></div>`;
-                }
-                return `<div class="container" style="max-width: 800px; margin: 0 auto;"><div class="card" style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;"><button class="btn" style="background: #555; padding: 8px 12px;" onclick="navigate('friends')">← Назад</button><img src="${chatUser.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%;"><div style="flex:1;"><h3>${escapeHtml(chatUser.displayName || chatUser.steamNickname)}</h3></div></div><div class="card" style="height: 450px; display: flex; flex-direction: column;"><div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 16px;">${messages.length === 0 ? '<div class="text-center" style="padding: 40px;">Нет сообщений</div>' : msgsHtml}</div><form id="chat-form" style="display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(76,0,255,0.2);"><input type="text" id="chat-input" class="form-input" style="flex: 1;" placeholder="Сообщение..."><button type="submit" class="btn btn-primary">📤</button></form></div></div>`;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки чата</div></div>'; }
-        }
-
-        // ============ АДМИН ============
-        async function renderAdmin() {
-            if (!currentUser?.isAdmin) return '<div class="container"><div class="card text-center">Доступ запрещён</div></div>';
-            try {
-                const users = (await api.get('/admin/users')).data.data || [];
-                let rows = '';
-                for (const u of users) {
-                    rows += `<tr style="border-bottom: 1px solid #333; cursor: pointer;" onclick="navigate('profile', { id: '${u.steamId}' })"><td style="padding: 10px;"><div style="display: flex; align-items: center; gap: 8px;"><img src="${u.steamAvatar}" style="width: 28px; height: 28px; border-radius: 50%;">${escapeHtml(u.displayName || u.steamNickname)}</div></td><td style="padding: 10px;">${u.balance} ₽</td><td style="padding: 10px;">${u.isAdmin ? '👑 Админ' : '👤 Пользователь'}</td><td style="padding: 10px;">${u.isBanned ? '🔴 Забанен' : '🟢 Активен'}</td></tr>`;
-                }
-                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">👑 Админ-панель</h1><div class="card"><h2 class="text-green">Все пользователи</h2><div style="overflow-x: auto; margin-top: 15px;"><table style="width: 100%; font-size: 13px;"><thead><tr style="border-bottom: 1px solid #333;"><th style="padding: 8px; text-align: left;">Ник</th><th style="padding: 8px; text-align: left;">Баланс</th><th style="padding: 8px; text-align: left;">Статус</th><th style="padding: 8px; text-align: left;">Бан</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
-            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
-        }
-
-        // ============ ФУНКЦИИ ДЕЙСТВИЙ ============
-        window.showRespondModal = function(postId, roles) {
-            let btns = '';
-            for (const r of roles) btns += `<button class="btn btn-outline" style="margin: 5px;" onclick="respondToLfg('${postId}', '${r}')">${r}</button>`;
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Выберите роль</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div style="text-align: center; padding: 20px;">${btns}</div></div>`;
-            document.body.appendChild(modal);
-        };
-
-        window.respondToLfg = async function(postId, role) {
-            document.querySelector('.modal-overlay')?.remove();
-            try { await api.post(`/lfg/${postId}/respond`, { role }); showToast('Отклик отправлен!', 'success'); renderPage(); } 
-            catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
-        };
-
-        window.loadResponses = async function(postId) {
-            try {
-                const res = await api.get(`/lfg/${postId}/responses`);
-                responsesCache[postId] = res.data.data || [];
-                renderPage();
-            } catch(e) { showToast('Ошибка загрузки откликов', 'error'); }
-        };
-
-        window.acceptResponse = async function(postId, responseId) {
-            try { await api.post(`/lfg/${postId}/responses/${responseId}/accept`); showToast('Игрок принят!', 'success'); renderPage(); } 
-            catch(err) { showToast('Ошибка', 'error'); }
-        };
-
-        window.rejectResponse = async function(postId, responseId) {
-            try { await api.post(`/lfg/${postId}/responses/${responseId}/reject`); showToast('Отклик отклонен', 'info'); renderPage(); } 
-            catch(err) { showToast('Ошибка', 'error'); }
-        };
-
-        window.deleteLfgPost = async function(postId) {
-            if (await customConfirm('Удалить анкету?')) {
-                try { await api.delete(`/lfg/${postId}`); showToast('Анкета удалена', 'success'); renderPage(); } 
-                catch(err) { showToast('Ошибка', 'error'); }
-            }
-        };
-
-        window.sendFriendRequest = async function(userId) {
-            try { await api.post(`/friends/request/${userId}`); showToast('Заявка отправлена', 'success'); } 
-            catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
-        };
-
-        window.acceptFriendRequest = async function(requestId) {
-            try { await api.post(`/friends/request/${requestId}/accept`); showToast('Заявка принята', 'success'); renderPage(); } 
-            catch(e) { showToast('Ошибка', 'error'); }
-        };
-
-        window.declineFriendRequest = async function(requestId) {
-            try { await api.post(`/friends/request/${requestId}/decline`); showToast('Заявка отклонена', 'info'); renderPage(); } 
-            catch(e) { showToast('Ошибка', 'error'); }
-        };
-
-        window.cancelFriendRequest = async function(requestId) {
-            if (await customConfirm('Отменить заявку?')) {
-                try { await api.delete(`/friends/request/${requestId}`); showToast('Заявка отменена', 'success'); renderPage(); } 
-                catch(e) { showToast('Ошибка', 'error'); }
-            }
-        };
-
-        window.removeFriend = async function(friendId) {
-            if (await customConfirm('Удалить из друзей?')) {
-                try { await api.delete(`/friends/${friendId}`); showToast('Удалён из друзей', 'success'); renderPage(); } 
-                catch(e) { showToast('Ошибка', 'error'); }
-            }
-        };
-
-        window.showTournamentDetails = function(tournamentId) {
-            const t = tournamentsCache.find(t => t.id === tournamentId);
-            if (!t) return;
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `<div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h2 class="text-green">${escapeHtml(t.title)}</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div class="prize" style="text-align: center;">🏆 ${t.prizePool}</div><p>📅 Дата: ${new Date(t.date).toLocaleString('ru-RU')}</p><p>👥 Формат: ${t.format}</p><p>💰 Взнос: ${t.entryFee} ₽</p>${t.description ? `<p class="text-gray" style="margin-top: 15px;">${escapeHtml(t.description)}</p>` : ''}<button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="showToast('Функция в разработке', 'info'); this.closest('.modal-overlay').remove()">Зарегистрировать команду</button></div>`;
-            document.body.appendChild(modal);
-        };
-
-        window.showFriendsTab = function(tab) {
-            const friends = document.getElementById('friends-tab-friends');
-            const requests = document.getElementById('friends-tab-requests');
-            const sent = document.getElementById('friends-tab-sent');
-            const btns = document.querySelectorAll('.flex button');
-            friends.style.display = 'none';
-            requests.style.display = 'none';
-            sent.style.display = 'none';
-            if (tab === 'friends') { friends.style.display = 'block'; btns[0].className = 'btn btn-primary'; btns[1].className = 'btn btn-outline'; btns[2].className = 'btn btn-outline'; }
-            else if (tab === 'requests') { requests.style.display = 'block'; btns[0].className = 'btn btn-outline'; btns[1].className = 'btn btn-primary'; btns[2].className = 'btn btn-outline'; }
-            else { sent.style.display = 'block'; btns[0].className = 'btn btn-outline'; btns[1].className = 'btn btn-outline'; btns[2].className = 'btn btn-primary'; }
-        };
-
-        // ============ ПРИВЯЗКА СОБЫТИЙ ============
-        function attachEvents() {
-            document.querySelectorAll('[data-page]').forEach(el => {
-                el.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const page = el.getAttribute('data-page');
-                    if (page === 'profile') navigate(page, { id: el.getAttribute('data-steamid') });
-                    else navigate(page);
+            document.getElementById('app').innerHTML = html;
+            attachNavigationEvents();
+            
+            // Привязка событий формы
+            document.querySelectorAll('.players-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.players-btn').forEach(b => b.classList.remove('btn-primary', 'btn-primary'));
+                    btn.classList.add('btn-primary');
+                    document.getElementById('lfg-players').value = btn.getAttribute('data-players');
+                };
+            });
+            document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('btn-primary'));
+                    btn.classList.add('btn-primary');
+                    const daily = document.getElementById('daily-schedule');
+                    const weekly = document.getElementById('weekly-schedule');
+                    if (btn.getAttribute('data-type') === 'daily') { daily.style.display = 'block'; weekly.style.display = 'none'; }
+                    else { daily.style.display = 'none'; weekly.style.display = 'block'; }
+                };
+            });
+            document.querySelectorAll('.weekday-input').forEach(inp => {
+                inp.addEventListener('input', function() { 
+                    const counter = this.nextElementSibling;
+                    if (counter) counter.textContent = `${this.value.length}/50`;
                 });
             });
+            const scheduleInput = document.getElementById('lfg-schedule');
+            if (scheduleInput) {
+                scheduleInput.addEventListener('input', function() { 
+                    const counter = this.nextElementSibling;
+                    if (counter) counter.textContent = `${this.value.length}/50`;
+                });
+            }
+            document.querySelector('.players-btn')?.classList.add('btn-primary');
             
             const form = document.getElementById('create-lfg-form');
             if (form) {
-                document.querySelectorAll('.players-btn').forEach(btn => {
-                    btn.onclick = () => {
-                        document.querySelectorAll('.players-btn').forEach(b => b.classList.remove('btn-primary'));
-                        btn.classList.add('btn-primary');
-                        document.getElementById('lfg-players').value = btn.getAttribute('data-players');
-                    };
-                });
-                document.querySelectorAll('.schedule-type-btn').forEach(btn => {
-                    btn.onclick = () => {
-                        document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('btn-primary'));
-                        btn.classList.add('btn-primary');
-                        const daily = document.getElementById('daily-schedule');
-                        const weekly = document.getElementById('weekly-schedule');
-                        if (btn.getAttribute('data-type') === 'daily') { daily.style.display = 'block'; weekly.style.display = 'none'; }
-                        else { daily.style.display = 'none'; weekly.style.display = 'block'; }
-                    };
-                });
-                document.querySelectorAll('.weekday-input').forEach(inp => {
-                    inp.addEventListener('input', function() { this.nextElementSibling.textContent = `${this.value.length}/50`; });
-                });
-                document.getElementById('lfg-schedule')?.addEventListener('input', function() { this.nextElementSibling.textContent = `${this.value.length}/50`; });
-                document.querySelector('.players-btn')?.classList.add('btn-primary');
                 form.onsubmit = async (e) => {
                     e.preventDefault();
                     const scheduleType = document.querySelector('.schedule-type-btn.btn-primary').getAttribute('data-type');
@@ -616,37 +548,481 @@
                         });
                         showToast('Анкета создана!', 'success');
                         navigate('lfg');
-                    } catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
+                    } catch(err) { 
+                        showToast(err.response?.data?.error || 'Ошибка при создании анкеты', 'error'); 
+                    }
                 };
-            }
-            
-            const chatForm = document.getElementById('chat-form');
-            if (chatForm) {
-                chatForm.onsubmit = async (e) => {
-                    e.preventDefault();
-                    const input = document.getElementById('chat-input');
-                    const text = input.value.trim();
-                    if (!text) return;
-                    const userId = currentPage.split('/chat/')[1];
-                    try { await api.post(`/messages/${userId}`, { text }); input.value = ''; renderPage(); } 
-                    catch(err) { showToast('Ошибка отправки', 'error'); }
-                };
-                setInterval(() => { if (currentPage.startsWith('chat/')) renderPage(); }, 3000);
             }
         }
 
-        // ============ ЗАПУСК ============
+        // ============ ТУРНИРЫ ============
+        async function renderTournaments() {
+            if (isLoadingTournaments) return;
+            isLoadingTournaments = true;
+            showLoading();
+            
+            try {
+                const res = await api.get('/tournaments');
+                const tournaments = res.data.data || [];
+                tournamentsCache = tournaments;
+                
+                let html = '';
+                for (const t of tournaments) {
+                    html += `
+                        <div class="tournament-card" onclick="showTournamentDetails('${t.id}')">
+                            <h3 style="color: #4caf50;">${escapeHtml(t.title)}</h3>
+                            <div class="prize">💰 ${t.prizePool}</div>
+                            <p>📅 ${formatDate(t.date)}</p>
+                            <button class="btn btn-primary" style="margin-top: 12px; width: 100%;">Подробнее</button>
+                        </div>
+                    `;
+                }
+                
+                const containerHtml = `
+                    <div class="container">
+                        <h1 style="font-size: 28px; margin-bottom: 20px;">🏆 Турниры CS2</h1>
+                        ${tournaments.length === 0 ? '<div class="card text-center">Нет турниров</div>' : `<div class="tournaments-grid">${html}</div>`}
+                    </div>
+                `;
+                document.getElementById('app').innerHTML = containerHtml;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('Tournaments error:', error);
+                showError('Не удалось загрузить турниры');
+            } finally {
+                isLoadingTournaments = false;
+            }
+        }
+
+        // ============ ДРУЗЬЯ ============
+        async function renderFriends() {
+            if (isLoadingFriends) return;
+            isLoadingFriends = true;
+            showLoading();
+            
+            if (!currentUser) {
+                document.getElementById('app').innerHTML = '<div class="container"><div class="card text-center">Войдите через Steam, чтобы видеть друзей</div></div>';
+                isLoadingFriends = false;
+                return;
+            }
+            
+            try {
+                const [friendsRes, requestsRes, sentRes] = await Promise.all([
+                    api.get('/friends'),
+                    api.get('/friends/requests'),
+                    api.get('/friends/requests/sent')
+                ]);
+                const friends = friendsRes.data.data || [];
+                const requests = requestsRes.data.data || [];
+                const sent = sentRes.data.data || [];
+                friendsCache = friends;
+                
+                let friendsHtml = '', requestsHtml = '', sentHtml = '';
+                for (const f of friends) {
+                    friendsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; cursor: pointer; margin-bottom: 10px;" onclick="navigate('profile', { id: '${f.steamId}' })"><img src="${f.steamAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(f.displayName || f.steamNickname)}</h4><p class="text-muted" style="font-size: 11px;">${f.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</p></div><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); navigate('chat', { id: '${f.id}' })">💬</button><button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); removeFriend('${f.id}')">🗑</button></div>`;
+                }
+                for (const r of requests) {
+                    requestsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${r.fromAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(r.fromName)}</h4></div><button class="btn btn-primary" style="padding: 6px 12px;" onclick="acceptFriendRequest('${r.id}')">✅</button><button class="btn" style="background: #555; padding: 6px 12px;" onclick="declineFriendRequest('${r.id}')">❌</button></div>`;
+                }
+                for (const s of sent) {
+                    sentHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${s.toAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(s.toName)}</h4><p class="text-muted" style="font-size: 10px;">Ожидает ответа</p></div><button class="btn" style="background: #f44336; padding: 6px 12px;" onclick="cancelFriendRequest('${s.id}')">Отменить</button></div>`;
+                }
+                
+                const html = `
+                    <div class="container">
+                        <h1 style="font-size: 28px; margin-bottom: 20px;">👥 Друзья</h1>
+                        <div class="flex" style="margin-bottom: 20px; gap: 10px;">
+                            <button class="btn btn-primary" onclick="showFriendsTab('friends')">Друзья (${friends.length})</button>
+                            <button class="btn btn-outline" onclick="showFriendsTab('requests')">Входящие (${requests.length})</button>
+                            <button class="btn btn-outline" onclick="showFriendsTab('sent')">Исходящие (${sent.length})</button>
+                        </div>
+                        <div id="friends-tab-friends">${friends.length === 0 ? '<div class="card text-center">Нет друзей</div>' : friendsHtml}</div>
+                        <div id="friends-tab-requests" style="display: none;">${requests.length === 0 ? '<div class="card text-center">Нет заявок</div>' : requestsHtml}</div>
+                        <div id="friends-tab-sent" style="display: none;">${sent.length === 0 ? '<div class="card text-center">Нет отправленных заявок</div>' : sentHtml}</div>
+                    </div>
+                `;
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('Friends error:', error);
+                showError('Не удалось загрузить друзей');
+            } finally {
+                isLoadingFriends = false;
+            }
+        }
+
+        // ============ ПРОФИЛЬ ============
+        async function renderProfile(steamId) {
+            if (isLoadingProfile) return;
+            isLoadingProfile = true;
+            showLoading();
+            
+            if (!steamId) {
+                showError('Пользователь не найден');
+                isLoadingProfile = false;
+                return;
+            }
+            
+            try {
+                const res = await api.get(`/profile/${steamId}`);
+                const profile = res.data.user;
+                if (!profile) throw new Error('User not found');
+                
+                const isOwn = currentUser?.steamId === steamId;
+                const html = `
+                    <div class="container">
+                        <div class="card">
+                            <div class="profile-header" style="flex-wrap: wrap;">
+                                <img src="${profile.steamAvatar}" class="profile-avatar">
+                                <div style="flex: 1;">
+                                    <h1>${escapeHtml(profile.displayName || profile.steamNickname)}</h1>
+                                    <p class="text-gray"><i class="fab fa-steam"></i> ${profile.steamNickname}</p>
+                                    <p class="text-muted" style="font-size: 11px;">ID: ${profile.id} | На сайте с: ${formatDate(profile.createdAt)}</p>
+                                    ${profile.isBanned ? '<p style="color: #f44336;">⚠️ Пользователь забанен</p>' : ''}
+                                    <div class="flex" style="margin-top: 10px; gap: 10px;">
+                                        <span class="text-green">${profile.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</span>
+                                        <span class="text-green">${profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'}</span>
+                                        ${profile.hasMic ? '<span class="text-green">🎤 Микрофон</span>' : ''}
+                                    </div>
+                                </div>
+                                ${!isOwn && currentUser ? `<div><button class="btn btn-primary" onclick="sendFriendRequest('${profile.id}')">➕ Добавить в друзья</button></div>` : ''}
+                            </div>
+                            ${profile.bio ? `<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;"><h3 class="text-green">О себе</h3><p class="text-gray">${escapeHtml(profile.bio)}</p></div>` : ''}
+                        </div>
+                    </div>
+                `;
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('Profile error:', error);
+                showError('Пользователь не найден');
+            } finally {
+                isLoadingProfile = false;
+            }
+        }
+
+        // ============ ЧАТ ============
+        async function renderChat(userId) {
+            if (isLoadingChat) return;
+            isLoadingChat = true;
+            showLoading();
+            
+            if (!currentUser) {
+                document.getElementById('app').innerHTML = '<div class="container"><div class="card text-center">Войдите через Steam</div></div>';
+                isLoadingChat = false;
+                return;
+            }
+            
+            try {
+                const userRes = await api.get(`/user/by-id/${userId}`);
+                const chatUser = userRes.data.user;
+                if (!chatUser) throw new Error('User not found');
+                
+                const messagesRes = await api.get(`/messages/${userId}`);
+                const messages = messagesRes.data.data || [];
+                
+                let msgsHtml = '';
+                for (const msg of messages) {
+                    const isOwn = msg.fromId === currentUser.id;
+                    msgsHtml += `<div style="text-align: ${isOwn ? 'right' : 'left'}; margin-bottom: 15px;">
+                        <div style="display: inline-block; background: ${isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)'}; padding: 10px 14px; border-radius: 16px; max-width: 75%;">
+                            <p style="font-size: 13px; margin-bottom: 4px;">${escapeHtml(msg.text)}</p>
+                            <p style="font-size: 9px; color: rgba(255,255,255,0.4);">${formatTime(msg.createdAt)}</p>
+                        </div>
+                    </div>`;
+                }
+                
+                const html = `
+                    <div class="container" style="max-width: 800px; margin: 0 auto;">
+                        <div class="card" style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                            <button class="btn" style="background: #555; padding: 8px 12px;" onclick="navigate('friends')">← Назад</button>
+                            <img src="${chatUser.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%;">
+                            <div style="flex:1;"><h3>${escapeHtml(chatUser.displayName || chatUser.steamNickname)}</h3></div>
+                        </div>
+                        <div class="card" style="height: 450px; display: flex; flex-direction: column;">
+                            <div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 16px;">
+                                ${messages.length === 0 ? '<div class="text-center" style="padding: 40px;">Нет сообщений</div>' : msgsHtml}
+                            </div>
+                            <form id="chat-form" style="display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(76,0,255,0.2);">
+                                <input type="text" id="chat-input" class="form-input" style="flex: 1;" placeholder="Сообщение...">
+                                <button type="submit" class="btn btn-primary">📤</button>
+                            </form>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+                
+                // Скролл вниз чата
+                const chatContainer = document.getElementById('chat-messages');
+                if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+                
+                // Отправка сообщения
+                const chatForm = document.getElementById('chat-form');
+                if (chatForm) {
+                    chatForm.onsubmit = async (e) => {
+                        e.preventDefault();
+                        const input = document.getElementById('chat-input');
+                        const text = input.value.trim();
+                        if (!text) return;
+                        try {
+                            await api.post(`/messages/${userId}`, { text });
+                            input.value = '';
+                            await renderChat(userId);
+                        } catch(err) { showToast('Ошибка отправки', 'error'); }
+                    };
+                }
+                
+                // Автообновление чата
+                const interval = setInterval(async () => {
+                    if (currentPage === `chat/${userId}`) {
+                        try {
+                            const newMessages = await api.get(`/messages/${userId}`);
+                            const newMsgsHtml = renderMessagesHtml(newMessages.data.data || [], currentUser.id);
+                            const chatDiv = document.getElementById('chat-messages');
+                            if (chatDiv) chatDiv.innerHTML = newMsgsHtml;
+                        } catch(e) {}
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 3000);
+                
+            } catch (error) {
+                console.error('Chat error:', error);
+                showError('Не удалось загрузить чат');
+            } finally {
+                isLoadingChat = false;
+            }
+        }
+
+        function renderMessagesHtml(messages, currentUserId) {
+            let html = '';
+            for (const msg of messages) {
+                const isOwn = msg.fromId === currentUserId;
+                html += `<div style="text-align: ${isOwn ? 'right' : 'left'}; margin-bottom: 15px;">
+                    <div style="display: inline-block; background: ${isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)'}; padding: 10px 14px; border-radius: 16px; max-width: 75%;">
+                        <p style="font-size: 13px; margin-bottom: 4px;">${escapeHtml(msg.text)}</p>
+                        <p style="font-size: 9px; color: rgba(255,255,255,0.4);">${formatTime(msg.createdAt)}</p>
+                    </div>
+                </div>`;
+            }
+            return html || '<div class="text-center" style="padding: 40px;">Нет сообщений</div>';
+        }
+
+        // ============ АДМИН ============
+        async function renderAdmin() {
+            if (isLoadingAdmin) return;
+            isLoadingAdmin = true;
+            showLoading();
+            
+            if (!currentUser?.isAdmin) {
+                document.getElementById('app').innerHTML = '<div class="container"><div class="card text-center">Доступ запрещён</div></div>';
+                isLoadingAdmin = false;
+                return;
+            }
+            
+            try {
+                const users = (await api.get('/admin/users')).data.data || [];
+                let rows = '';
+                for (const u of users) {
+                    rows += `<tr style="border-bottom: 1px solid #333; cursor: pointer;" onclick="navigate('profile', { id: '${u.steamId}' })">
+                        <td style="padding: 10px;"><div style="display: flex; align-items: center; gap: 8px;"><img src="${u.steamAvatar}" style="width: 28px; height: 28px; border-radius: 50%;">${escapeHtml(u.displayName || u.steamNickname)}</div></td>
+                        <td style="padding: 10px;">${u.balance} ₽</td>
+                        <td style="padding: 10px;">${u.isAdmin ? '👑 Админ' : '👤 Пользователь'}</td>
+                        <td style="padding: 10px;">${u.isBanned ? '🔴 Забанен' : '🟢 Активен'}</td>
+                    </td>`;
+                }
+                const html = `
+                    <div class="container">
+                        <h1 style="font-size: 28px; margin-bottom: 20px;">👑 Админ-панель</h1>
+                        <div class="card">
+                            <h2 class="text-green">Все пользователи</h2>
+                            <div style="overflow-x: auto; margin-top: 15px;">
+                                <table style="width: 100%; font-size: 13px;">
+                                    <thead><tr style="border-bottom: 1px solid #333;"><th style="padding: 8px; text-align: left;">Ник</th><th style="padding: 8px; text-align: left;">Баланс</th><th style="padding: 8px; text-align: left;">Статус</th><th style="padding: 8px; text-align: left;">Бан</th></tr></thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('app').innerHTML = html;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('Admin error:', error);
+                showError('Не удалось загрузить админ-панель');
+            } finally {
+                isLoadingAdmin = false;
+            }
+        }
+
+        // ============ ФУНКЦИИ ДЕЙСТВИЙ (глобальные) ============
+        window.showRespondModal = function(postId, roles) {
+            let btns = '';
+            for (const r of roles) btns += `<button class="btn btn-outline" style="margin: 5px;" onclick="respondToLfg('${postId}', '${r}')">${r}</button>`;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '10001';
+            modal.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Выберите роль</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div style="text-align: center; padding: 20px;">${btns}</div></div>`;
+            document.body.appendChild(modal);
+        };
+
+        window.respondToLfg = async function(postId, role) {
+            const modal = document.querySelector('.modal-overlay');
+            if (modal) modal.remove();
+            try { 
+                await api.post(`/lfg/${postId}/respond`, { role }); 
+                showToast('Отклик отправлен!', 'success'); 
+                renderPage(); 
+            } catch(err) { 
+                showToast(err.response?.data?.error || 'Ошибка', 'error'); 
+            }
+        };
+
+        window.loadResponses = async function(postId) {
+            try {
+                const res = await api.get(`/lfg/${postId}/responses`);
+                responsesCache[postId] = res.data.data || [];
+                renderPage();
+            } catch(e) { showToast('Ошибка загрузки откликов', 'error'); }
+        };
+
+        window.acceptResponse = async function(postId, responseId) {
+            try { 
+                await api.post(`/lfg/${postId}/responses/${responseId}/accept`); 
+                showToast('Игрок принят!', 'success'); 
+                renderPage(); 
+            } catch(err) { showToast('Ошибка', 'error'); }
+        };
+
+        window.rejectResponse = async function(postId, responseId) {
+            try { 
+                await api.post(`/lfg/${postId}/responses/${responseId}/reject`); 
+                showToast('Отклик отклонен', 'info'); 
+                renderPage(); 
+            } catch(err) { showToast('Ошибка', 'error'); }
+        };
+
+        window.deleteLfgPost = async function(postId) {
+            if (await customConfirm('Удалить анкету?')) {
+                try { 
+                    await api.delete(`/lfg/${postId}`); 
+                    showToast('Анкета удалена', 'success'); 
+                    renderPage(); 
+                } catch(err) { showToast('Ошибка', 'error'); }
+            }
+        };
+
+        window.sendFriendRequest = async function(userId) {
+            try { 
+                await api.post(`/friends/request/${userId}`); 
+                showToast('Заявка отправлена', 'success'); 
+            } catch(err) { 
+                showToast(err.response?.data?.error || 'Ошибка', 'error'); 
+            }
+        };
+
+        window.acceptFriendRequest = async function(requestId) {
+            try { 
+                await api.post(`/friends/request/${requestId}/accept`); 
+                showToast('Заявка принята', 'success'); 
+                renderPage(); 
+            } catch(e) { showToast('Ошибка', 'error'); }
+        };
+
+        window.declineFriendRequest = async function(requestId) {
+            try { 
+                await api.post(`/friends/request/${requestId}/decline`); 
+                showToast('Заявка отклонена', 'info'); 
+                renderPage(); 
+            } catch(e) { showToast('Ошибка', 'error'); }
+        };
+
+        window.cancelFriendRequest = async function(requestId) {
+            if (await customConfirm('Отменить заявку?')) {
+                try { 
+                    await api.delete(`/friends/request/${requestId}`); 
+                    showToast('Заявка отменена', 'success'); 
+                    renderPage(); 
+                } catch(e) { showToast('Ошибка', 'error'); }
+            }
+        };
+
+        window.removeFriend = async function(friendId) {
+            if (await customConfirm('Удалить из друзей?')) {
+                try { 
+                    await api.delete(`/friends/${friendId}`); 
+                    showToast('Удалён из друзей', 'success'); 
+                    renderPage(); 
+                } catch(e) { showToast('Ошибка', 'error'); }
+            }
+        };
+
+        window.showTournamentDetails = function(tournamentId) {
+            const t = tournamentsCache.find(t => t.id === tournamentId);
+            if (!t) return;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '10001';
+            modal.innerHTML = `<div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h2 class="text-green">${escapeHtml(t.title)}</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div class="prize" style="text-align: center;">🏆 ${t.prizePool}</div><p>📅 Дата: ${new Date(t.date).toLocaleString('ru-RU')}</p><p>👥 Формат: ${t.format}</p><p>💰 Взнос: ${t.entryFee} ₽</p>${t.description ? `<p class="text-gray" style="margin-top: 15px;">${escapeHtml(t.description)}</p>` : ''}<button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="showToast('Функция в разработке', 'info'); this.closest('.modal-overlay').remove()">Зарегистрировать команду</button></div>`;
+            document.body.appendChild(modal);
+        };
+
+        window.showFriendsTab = function(tab) {
+            const friends = document.getElementById('friends-tab-friends');
+            const requests = document.getElementById('friends-tab-requests');
+            const sent = document.getElementById('friends-tab-sent');
+            const btns = document.querySelectorAll('.flex button');
+            if (friends) friends.style.display = 'none';
+            if (requests) requests.style.display = 'none';
+            if (sent) sent.style.display = 'none';
+            if (tab === 'friends') { if (friends) friends.style.display = 'block'; if (btns[0]) btns[0].className = 'btn btn-primary'; if (btns[1]) btns[1].className = 'btn btn-outline'; if (btns[2]) btns[2].className = 'btn btn-outline'; }
+            else if (tab === 'requests') { if (requests) requests.style.display = 'block'; if (btns[0]) btns[0].className = 'btn btn-outline'; if (btns[1]) btns[1].className = 'btn btn-primary'; if (btns[2]) btns[2].className = 'btn btn-outline'; }
+            else { if (sent) sent.style.display = 'block'; if (btns[0]) btns[0].className = 'btn btn-outline'; if (btns[1]) btns[1].className = 'btn btn-outline'; if (btns[2]) btns[2].className = 'btn btn-primary'; }
+        };
+
+        // ============ ПРИВЯЗКА СОБЫТИЙ НАВИГАЦИИ ============
+        function attachNavigationEvents() {
+            document.querySelectorAll('[data-page]').forEach(el => {
+                el.removeEventListener('click', handleNavClick);
+                el.addEventListener('click', handleNavClick);
+            });
+        }
+
+        function handleNavClick(e) {
+            e.preventDefault();
+            const page = this.getAttribute('data-page');
+            if (page === 'profile') {
+                const steamId = this.getAttribute('data-steamid');
+                if (steamId) navigate('profile', { id: steamId });
+            } else {
+                navigate(page);
+            }
+        }
+
+        // ============ ИНИЦИАЛИЗАЦИЯ ============
         async function init() {
             await loadAuth();
             updateOnlineCount();
             sendHeartbeat();
+            
             setInterval(updateOnlineCount, 30000);
             setInterval(sendHeartbeat, 30000);
             setInterval(() => { if (currentUser) loadUnreadCounts(); }, 10000);
-            window.addEventListener('popstate', () => { currentPage = window.location.pathname.slice(1) || 'home'; renderPage(); });
-            currentPage = window.location.pathname.slice(1) || 'home';
+            
+            window.addEventListener('popstate', () => {
+                const path = window.location.pathname.slice(1) || 'home';
+                if (path !== currentPage) {
+                    currentPage = path;
+                    renderPage();
+                }
+            });
+            
+            const initialPath = window.location.pathname.slice(1) || 'home';
+            currentPage = initialPath;
             renderPage();
         }
+        
         init();
     </script>
 </body>
