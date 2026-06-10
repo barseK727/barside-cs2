@@ -11,11 +11,8 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     
     <style>
-        /* Дополнительные стили для SPA */
         .page { display: none; }
         .page.active { display: block; }
-        .clickable { cursor: pointer; }
-        .loading { text-align: center; padding: 50px; }
         .role-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; }
         .role-IGL { background: #ffd70020; color: #ffd700; border: 1px solid #ffd70040; }
         .role-AWP { background: #4caf5020; color: #4caf50; border: 1px solid #4caf5040; }
@@ -23,20 +20,25 @@
         .role-RIFLER { background: #2196f320; color: #2196f3; border: 1px solid #2196f340; }
         .role-LURKER { background: #9c27b020; color: #9c27b0; border: 1px solid #9c27b040; }
         .notification-badge { background: #f44336; border-radius: 10px; padding: 2px 6px; font-size: 10px; margin-left: 5px; animation: pulse 1s infinite; }
-        .custom-select { position: relative; width: 100%; }
-        .custom-select-trigger { background: rgba(255,255,255,0.05); border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-        .custom-select-trigger:hover { border-color: var(--primary); }
-        .custom-select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #1a1a24; border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; margin-top: 5px; z-index: 100; max-height: 250px; overflow-y: auto; display: none; }
-        .custom-select.open .custom-select-dropdown { display: block; }
-        .custom-select-option { padding: 12px 18px; cursor: pointer; transition: background 0.2s; }
-        .custom-select-option:hover { background: rgba(76,0,255,0.15); }
-        .custom-select-option.selected { background: rgba(76,0,255,0.3); color: var(--primary-light); }
         .team-slot { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
         .team-slot.filled { background: rgba(76,0,255,0.15); border: 1px solid rgba(76,0,255,0.3); }
         .team-slot.empty { background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.2); }
         .lfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 24px; margin: 30px 0; }
         .tournaments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; margin: 30px 0; }
         @media (max-width: 768px) { .lfg-grid, .tournaments-grid { grid-template-columns: 1fr; } }
+        .response-card { background: rgba(255,255,255,0.03); border-radius: 16px; padding: 15px; margin-bottom: 12px; }
+        .response-card:hover { background: rgba(255,255,255,0.06); }
+        .stars { display: inline-flex; gap: 4px; cursor: pointer; }
+        .star { font-size: 20px; color: #555; cursor: pointer; }
+        .star.active { color: #ffd700; }
+        .custom-select { position: relative; width: 100%; }
+        .custom-select-trigger { background: rgba(255,255,255,0.05); border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .custom-select-trigger:hover { border-color: var(--primary); }
+        .custom-select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #1a1a24; border: 1px solid rgba(76,0,255,0.3); border-radius: 14px; margin-top: 5px; z-index: 100; max-height: 250px; overflow-y: auto; display: none; }
+        .custom-select.open .custom-select-dropdown { display: block; }
+        .custom-select-option { padding: 12px 18px; cursor: pointer; }
+        .custom-select-option:hover { background: rgba(76,0,255,0.15); }
+        .custom-select-option.selected { background: rgba(76,0,255,0.3); color: var(--primary-light); }
         .weekday-schedule { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
         .weekday-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .weekday-name { width: 100px; font-weight: 600; color: var(--primary-light); }
@@ -45,15 +47,6 @@
         .char-counter { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 4px; }
         .char-counter.warning { color: #ff9800; }
         .char-counter.danger { color: #f44336; }
-        .response-card { background: rgba(255,255,255,0.03); border-radius: 16px; padding: 15px; margin-bottom: 12px; }
-        .response-card:hover { background: rgba(255,255,255,0.06); }
-        .stars { display: inline-flex; gap: 4px; cursor: pointer; }
-        .star { font-size: 20px; color: #555; cursor: pointer; }
-        .star.active { color: #ffd700; }
-        .dropdown-menu { position: absolute; top: 100%; right: 0; background: #1e1e2a; border-radius: 12px; padding: 8px; min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); border: 1px solid rgba(76,0,255,0.3); }
-        .dropdown-menu button { width: 100%; text-align: left; background: none; border: none; padding: 8px 12px; color: white; cursor: pointer; border-radius: 8px; font-size: 13px; }
-        .dropdown-menu button:hover { background: rgba(76,0,255,0.2); }
-        .dropdown-menu button.danger { color: #ff5555; }
         .compact-friend { padding: 10px 15px !important; }
         .compact-friend img { width: 40px !important; height: 40px !important; }
     </style>
@@ -61,7 +54,6 @@
 <body>
     <div id="toast-container" class="toast-container"></div>
     
-    <!-- ШАПКА -->
     <header class="header">
         <div class="header-content">
             <div class="flex" style="gap: 20px; align-items: center;">
@@ -86,23 +78,18 @@
     <div id="app" style="padding-top: 40px;"></div>
 
     <script>
-        // ==================== API ====================
         const api = axios.create({
             baseURL: 'https://barside-api.onrender.com/api',
             withCredentials: true,
             headers: { 'Content-Type': 'application/json' }
         });
 
-        // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
         let currentUser = null;
         let currentPage = 'home';
-        let onlineCount = 0;
-        let unreadMessages = 0;
-        let unreadResponses = 0;
         let postsCache = [];
         let tournamentsCache = [];
+        let responsesCache = {};
 
-        // ==================== УТИЛИТЫ ====================
         function showToast(message, type = 'success', title = '') {
             const container = document.getElementById('toast-container');
             if (!container) return;
@@ -112,9 +99,8 @@
             toast.className = `toast toast-${type}`;
             toast.innerHTML = `<div class="toast-icon">${icons[type] || '✓'}</div><div class="toast-content"><div class="toast-title">${title || titles[type]}</div><div class="toast-message">${message}</div></div><button class="toast-close">✕</button>`;
             container.appendChild(toast);
-            const closeBtn = toast.querySelector('.toast-close');
-            closeBtn.onclick = () => { toast.remove(); };
-            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
+            toast.querySelector('.toast-close').onclick = () => toast.remove();
+            setTimeout(() => toast.remove(), 4000);
         }
 
         function escapeHtml(str) {
@@ -128,56 +114,35 @@
         }
 
         function formatTime(dateStr) {
-            try { const date = new Date(dateStr); return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } 
+            try { return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } 
             catch(e) { return ''; }
-        }
-
-        function formatRelativeTime(dateStr) {
-            try {
-                const date = new Date(dateStr);
-                const now = new Date();
-                const diffMins = Math.floor((now - date) / 60000);
-                const diffHours = Math.floor(diffMins / 60);
-                const diffDays = Math.floor(diffHours / 24);
-                if (diffMins < 1) return 'только что';
-                if (diffMins < 60) return `${diffMins} мин назад`;
-                if (diffHours < 24) return `${diffHours} ч назад`;
-                return `${diffDays} д назад`;
-            } catch(e) { return ''; }
         }
 
         function customConfirm(message) {
             return new Promise((resolve) => {
-                const modalOverlay = document.createElement('div');
-                modalOverlay.className = 'modal-overlay';
-                modalOverlay.style.zIndex = '10000';
-                modalOverlay.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Подтверждение</h2><button class="modal-close" id="confirm-close">✕</button></div><p style="margin-bottom: 25px; color: #ccc;">${message}</p><div class="flex" style="justify-content: flex-end; gap: 12px;"><button id="confirm-cancel" class="btn" style="background: #555;">Отмена</button><button id="confirm-ok" class="btn btn-green">Да, подтверждаю</button></div></div>`;
-                document.body.appendChild(modalOverlay);
-                const closeModal = () => { modalOverlay.remove(); };
-                modalOverlay.querySelector('#confirm-close').onclick = () => { resolve(false); closeModal(); };
-                modalOverlay.querySelector('#confirm-cancel').onclick = () => { resolve(false); closeModal(); };
-                modalOverlay.querySelector('#confirm-ok').onclick = () => { resolve(true); closeModal(); };
-                modalOverlay.onclick = (e) => { if (e.target === modalOverlay) { resolve(false); closeModal(); } };
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Подтверждение</h2><button class="modal-close" id="confirm-close">✕</button></div><p style="margin-bottom: 25px; color: #ccc;">${message}</p><div class="flex" style="justify-content: flex-end; gap: 12px;"><button id="confirm-cancel" class="btn" style="background: #555;">Отмена</button><button id="confirm-ok" class="btn btn-green">Да, подтверждаю</button></div></div>`;
+                document.body.appendChild(modal);
+                modal.querySelector('#confirm-close').onclick = () => { resolve(false); modal.remove(); };
+                modal.querySelector('#confirm-cancel').onclick = () => { resolve(false); modal.remove(); };
+                modal.querySelector('#confirm-ok').onclick = () => { resolve(true); modal.remove(); };
+                modal.onclick = (e) => { if (e.target === modal) { resolve(false); modal.remove(); } };
             });
         }
 
-        // ==================== НАВИГАЦИЯ ====================
         function navigate(page, params = {}) {
             currentPage = page;
             let url = `/${page}`;
             if (page === 'profile' && params.id) url = `/profile/${params.id}`;
             if (page === 'chat' && params.id) url = `/chat/${params.id}`;
+            if (page === 'lfg-create') url = `/lfg/create`;
             window.history.pushState({}, '', url);
             renderPage();
         }
 
-        // ==================== ОНЛАЙН СЧЁТЧИК ====================
         async function updateOnlineCount() {
-            try {
-                const res = await api.get('/online');
-                onlineCount = res.data.count;
-                document.getElementById('online-count').textContent = onlineCount;
-            } catch(e) {}
+            try { const res = await api.get('/online'); document.getElementById('online-count').textContent = res.data.count; } catch(e) {}
         }
 
         async function sendHeartbeat() {
@@ -186,43 +151,22 @@
             try { await api.post('/heartbeat', { sessionId }); } catch(e) {}
         }
 
-        // ==================== АВТОРИЗАЦИЯ ====================
         async function loadAuth() {
             try {
                 const res = await api.get('/auth/me');
                 currentUser = res.data.data;
                 updateAuthUI();
-                if (currentUser) {
-                    loadUnreadCounts();
-                    loadBalance();
-                }
+                if (currentUser) { loadUnreadCounts(); loadBalance(); }
             } catch(e) { currentUser = null; updateAuthUI(); }
         }
 
         function updateAuthUI() {
             const authSection = document.getElementById('auth-section');
             const adminLink = document.getElementById('admin-link');
-            
             if (currentUser) {
-                authSection.innerHTML = `
-                    <a href="#" class="profile-btn" data-page="profile" data-steamid="${currentUser.steamId}">
-                        <img src="${currentUser.steamAvatar}" class="profile-avatar-small">
-                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                            <span class="profile-name">${escapeHtml(currentUser.displayName || currentUser.steamNickname)}</span>
-                            <span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;"><i class="fas fa-coins"></i> <span id="header-balance">0</span> ₽</span>
-                        </div>
-                        <span class="profile-arrow">→</span>
-                    </a>
-                `;
-                document.querySelector('[data-page="profile"]')?.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    navigate('profile', { id: currentUser.steamId });
-                });
-                if (currentUser.isAdmin) {
-                    adminLink.style.display = 'flex';
-                } else {
-                    adminLink.style.display = 'none';
-                }
+                authSection.innerHTML = `<a href="#" class="profile-btn" data-page="profile" data-steamid="${currentUser.steamId}"><img src="${currentUser.steamAvatar}" class="profile-avatar-small"><div style="display: flex; flex-direction: column; align-items: flex-start;"><span class="profile-name">${escapeHtml(currentUser.displayName || currentUser.steamNickname)}</span><span style="font-size: 11px; color: #ffd700; display: flex; align-items: center; gap: 4px;"><i class="fas fa-coins"></i> <span id="header-balance">0</span> ₽</span></div><span class="profile-arrow">→</span></a>`;
+                document.querySelector('[data-page="profile"]')?.addEventListener('click', (e) => { e.preventDefault(); navigate('profile', { id: currentUser.steamId }); });
+                adminLink.style.display = currentUser.isAdmin ? 'flex' : 'none';
             } else {
                 authSection.innerHTML = `<a href="/api/auth/steam" class="btn btn-primary"><i class="fab fa-steam"></i> Войти через Steam</a>`;
                 adminLink.style.display = 'none';
@@ -231,108 +175,61 @@
 
         async function loadBalance() {
             if (!currentUser) return;
-            try {
-                const res = await api.get('/balance');
-                const balanceSpan = document.getElementById('header-balance');
-                if (balanceSpan) balanceSpan.textContent = res.data.balance;
-            } catch(e) {}
+            try { const res = await api.get('/balance'); document.getElementById('header-balance').textContent = res.data.balance; } catch(e) {}
         }
 
         async function loadUnreadCounts() {
             try {
-                const messagesRes = await api.get('/messages/unread/count');
-                unreadMessages = messagesRes.data.count || 0;
-                const unreadBadge = document.getElementById('unread-badge');
-                if (unreadBadge) {
-                    unreadBadge.style.display = unreadMessages > 0 ? 'inline' : 'none';
-                    unreadBadge.textContent = unreadMessages;
-                }
+                const msgRes = await api.get('/messages/unread/count');
+                const badge = document.getElementById('unread-badge');
+                if (msgRes.data.count > 0) { badge.style.display = 'inline'; badge.textContent = msgRes.data.count; } 
+                else { badge.style.display = 'none'; }
             } catch(e) {}
-            
             try {
-                const responsesRes = await api.get('/lfg/responses/unread');
-                unreadResponses = responsesRes.data.count || 0;
-                const responseBadge = document.getElementById('response-badge');
-                if (responseBadge) {
-                    responseBadge.style.display = unreadResponses > 0 ? 'inline' : 'none';
-                    responseBadge.textContent = unreadResponses;
-                }
+                const respRes = await api.get('/lfg/responses/unread');
+                const badge = document.getElementById('response-badge');
+                if (respRes.data.count > 0) { badge.style.display = 'inline'; badge.textContent = respRes.data.count; } 
+                else { badge.style.display = 'none'; }
             } catch(e) {}
         }
 
-        // ==================== ОТРИСОВКА СТРАНИЦ ====================
         async function renderPage() {
             const app = document.getElementById('app');
             if (!app) return;
-            
             let html = '';
-            
-            if (currentPage === 'home') {
-                html = await renderHomePage();
-            } else if (currentPage === 'lfg') {
-                html = await renderLfgPage();
-            } else if (currentPage === 'tournaments') {
-                html = await renderTournamentsPage();
-            } else if (currentPage === 'friends') {
-                html = await renderFriendsPage();
-            } else if (currentPage === 'admin' && currentUser?.isAdmin) {
-                html = await renderAdminPage();
-            } else if (currentPage.startsWith('profile/')) {
-                const steamId = currentPage.split('/profile/')[1];
-                html = await renderProfilePage(steamId);
-            } else if (currentPage.startsWith('chat/')) {
-                const userId = currentPage.split('/chat/')[1];
-                html = await renderChatPage(userId);
-            } else {
-                html = await renderHomePage();
-            }
-            
+            if (currentPage === 'home') html = await renderHome();
+            else if (currentPage === 'lfg') html = await renderLfg();
+            else if (currentPage === 'lfg-create') html = renderLfgCreate();
+            else if (currentPage === 'tournaments') html = await renderTournaments();
+            else if (currentPage === 'friends') html = await renderFriends();
+            else if (currentPage === 'admin' && currentUser?.isAdmin) html = await renderAdmin();
+            else if (currentPage.startsWith('profile/')) html = await renderProfile(currentPage.split('/profile/')[1]);
+            else if (currentPage.startsWith('chat/')) html = await renderChat(currentPage.split('/chat/')[1]);
+            else html = await renderHome();
             app.innerHTML = html;
-            attachEventListeners();
+            attachEvents();
         }
 
-        // ==================== ГЛАВНАЯ СТРАНИЦА ====================
-        async function renderHomePage() {
+        // ============ ГЛАВНАЯ ============
+        async function renderHome() {
             try {
-                const statsRes = await api.get('/stats');
-                const stats = statsRes.data;
-                
+                const stats = (await api.get('/stats')).data;
                 return `
                     <div class="container">
                         <div style="text-align: center; padding: 60px 20px; background: linear-gradient(135deg, rgba(76,0,255,0.1), rgba(255,61,0,0.05)); border-radius: 24px; margin-bottom: 40px;">
                             <h1 style="font-size: 48px; margin-bottom: 20px; font-weight: 800;">BARSIDE <span style="background: linear-gradient(135deg, #4caf50, #8bc34a); -webkit-background-clip: text; background-clip: text; color: transparent;">CS2</span></h1>
-                            <p class="text-gray" style="font-size: 18px; margin-bottom: 30px;">Лучшие турниры, серверы и сообщество для настоящих фанатов Counter-Strike 2</p>
+                            <p class="text-gray" style="font-size: 18px; margin-bottom: 30px;">Лучшие турниры, поиск тиммейтов и сообщество для настоящих фанатов Counter-Strike 2</p>
                             <div class="flex" style="justify-content: center; gap: 15px;">
                                 <button class="btn btn-primary" onclick="navigate('tournaments')"><i class="fas fa-trophy"></i> Турниры</button>
                                 <button class="btn btn-outline" onclick="navigate('lfg')"><i class="fas fa-users"></i> Найти команду</button>
                             </div>
                         </div>
-                        
                         <div class="stats-grid">
                             <div class="stat-card"><i class="fas fa-users" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalUsers || 0}</div><div class="stat-label">Игроков</div></div>
                             <div class="stat-card"><i class="fas fa-file-alt" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalLfgPosts || 0}</div><div class="stat-label">Активных анкет</div></div>
                             <div class="stat-card"><i class="fas fa-trophy" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalTournaments || 0}</div><div class="stat-label">Турниров</div></div>
-                            <div class="stat-card"><i class="fas fa-server" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">8</div><div class="stat-label">Серверов</div></div>
+                            <div class="stat-card"><i class="fas fa-users" style="font-size: 32px; margin-bottom: 10px;"></i><div class="stat-number">${stats.totalUsers || 0}</div><div class="stat-label">В сети</div></div>
                         </div>
-                        
-                        <div class="card" style="margin-bottom: 30px;">
-                            <h2 class="text-green" style="margin-bottom: 20px;">🎮 Игровые серверы</h2>
-                            <div style="display: grid; gap: 15px;">
-                                <div class="flex" style="justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 12px;">
-                                    <div><strong>BARSIDE DM #1</strong><p class="text-gray" style="font-size: 12px;">Deathmatch • de_dust2</p></div>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="window.open('steam://connect/62.122.214.244:27015')">Играть</button>
-                                </div>
-                                <div class="flex" style="justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 12px;">
-                                    <div><strong>BARSIDE 5x5 #1</strong><p class="text-gray" style="font-size: 12px;">Competitive • de_mirage</p></div>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="window.open('steam://connect/45.92.38.55:28031')">Играть</button>
-                                </div>
-                                <div class="flex" style="justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 12px;">
-                                    <div><strong>BARSIDE 2x2 #1</strong><p class="text-gray" style="font-size: 12px;">Wingman • de_inferno</p></div>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="window.open('steam://connect/91.103.255.168:28029')">Играть</button>
-                                </div>
-                            </div>
-                        </div>
-                        
                         <div class="card" style="text-align: center;">
                             <h2 class="text-green">Готов к соревнованиям?</h2>
                             <p class="text-gray" style="margin-bottom: 20px;">Присоединяйся к турнирам, находи тиммейтов и повышай свой скилл</p>
@@ -342,18 +239,13 @@
                         </div>
                     </div>
                 `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>';
-            }
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
         }
 
-        // ==================== СТРАНИЦА LFG ====================
-        async function renderLfgPage() {
+        // ============ LFG СПИСОК ============
+        async function renderLfg() {
             try {
-                const [activeRes, completedRes] = await Promise.all([
-                    api.get('/lfg'),
-                    api.get('/lfg/completed')
-                ]);
+                const [activeRes, completedRes] = await Promise.all([api.get('/lfg'), api.get('/lfg/completed')]);
                 const posts = activeRes.data.data || [];
                 const completedPosts = completedRes.data.data || [];
                 postsCache = posts;
@@ -362,40 +254,54 @@
                 for (const post of posts) {
                     const isAuthor = currentUser?.id === post.authorId;
                     const rolesNeeded = post.rolesNeeded || {};
-                    const rolesList = Object.keys(rolesNeeded).filter(r => rolesNeeded[r]);
+                    const availableRoles = Object.keys(rolesNeeded).filter(r => rolesNeeded[r]);
+                    
+                    // Загружаем отклики для автора
+                    let responsesHtml = '';
+                    if (isAuthor && responsesCache[post.id]) {
+                        responsesHtml = `<div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                            <h4 class="text-green" style="margin-bottom: 10px;">Отклики:</h4>`;
+                        for (const r of responsesCache[post.id]) {
+                            responsesHtml += `<div class="response-card" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;" onclick="navigate('profile', { id: '${r.user?.steamId}' })">
+                                    <img src="${r.user?.steamAvatar}" style="width: 36px; height: 36px; border-radius: 50%;">
+                                    <div><strong>${escapeHtml(r.user?.displayName || r.user?.steamNickname)}</strong><p class="text-gray" style="font-size: 11px;">Хочет играть на <span class="role-badge role-${r.role}">${r.role}</span></p></div>
+                                </div>
+                                <div><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="acceptResponse('${post.id}', '${r.id}')">✅ Принять</button>
+                                <button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px; margin-left: 5px;" onclick="rejectResponse('${post.id}', '${r.id}')">❌ Отклонить</button></div>
+                            </div>`;
+                        }
+                        responsesHtml += `</div>`;
+                    }
                     
                     postsHtml += `
                         <div class="lfg-card">
                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
                                 <div style="display: flex; gap: 12px; align-items: center; cursor: pointer;" onclick="navigate('profile', { id: '${post.author?.steamId}' })">
                                     <img src="${post.author?.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--primary);">
-                                    <div>
-                                        <h3>${escapeHtml(post.title)}</h3>
-                                        <p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p>
-                                    </div>
+                                    <div><h3>${escapeHtml(post.title)}</h3><p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p></div>
                                 </div>
                                 <div class="status-badge status-upcoming">Ищет ${post.playersNeeded} игроков</div>
                             </div>
-                            
                             <div class="flex" style="gap: 10px; margin-bottom: 12px; flex-wrap: wrap; font-size: 12px;">
                                 <span>${post.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</span>
                                 <span>🎭 <span class="role-badge role-${post.myRole}">${post.myRole}</span></span>
                                 <span>📈 ${post.minFaceitLevel}+ FaceIt</span>
                                 <span>🗣️ ${post.language === 'ru' ? '🇷🇺 Русский' : '🇬🇧 English'}</span>
                             </div>
-                            
                             <div style="margin-bottom: 12px;">
                                 <p class="text-gray" style="font-size: 12px;">📅 ${escapeHtml(post.schedule)}</p>
-                                ${rolesList.length > 0 ? `<p class="text-gray" style="font-size: 12px;">🎮 Нужны роли: ${rolesList.map(r => `<span class="role-badge role-${r}" style="margin-right: 5px;">${r}</span>`).join('')}</p>` : ''}
+                                <p class="text-gray" style="font-size: 12px;">🎮 Нужны роли: ${availableRoles.map(r => `<span class="role-badge role-${r}" style="margin-right: 5px;">${r}</span>`).join('')}</p>
                             </div>
-                            
                             ${post.description ? `<p class="text-gray" style="font-size: 13px; margin-bottom: 12px; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 8px;">${escapeHtml(post.description)}</p>` : ''}
-                            
                             <div style="display: flex; gap: 8px; margin-top: 12px;">
-                                ${!isAuthor && currentUser ? `<button class="btn btn-primary" style="flex: 1;" onclick="showRespondModal('${post.id}', ${JSON.stringify(rolesList)})">📝 Откликнуться</button>` : ''}
+                                ${!isAuthor && currentUser && availableRoles.length > 0 ? `<button class="btn btn-primary" style="flex: 1;" onclick="showRespondModal('${post.id}', ${JSON.stringify(availableRoles)})">📝 Откликнуться</button>` : ''}
+                                ${!isAuthor && currentUser && availableRoles.length === 0 ? `<button class="btn" style="flex: 1; background: #555;" disabled>❌ Нет свободных ролей</button>` : ''}
                                 ${!currentUser ? `<button class="btn btn-primary" style="flex: 1;" onclick="showToast('Войдите через Steam', 'info')">Войдите, чтобы откликнуться</button>` : ''}
+                                ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="loadResponses('${post.id}')">📋 Отклики</button>` : ''}
                                 ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="deleteLfgPost('${post.id}')">🗑 Удалить</button>` : ''}
                             </div>
+                            ${responsesHtml}
                         </div>
                     `;
                 }
@@ -406,21 +312,13 @@
                         <div class="lfg-card" style="opacity: 0.9;">
                             <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 15px; cursor: pointer;" onclick="navigate('profile', { id: '${post.author?.steamId}' })">
                                 <img src="${post.author?.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%;">
-                                <div>
-                                    <h3>${escapeHtml(post.title)}</h3>
-                                    <p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p>
-                                </div>
+                                <div><h3>${escapeHtml(post.title)}</h3><p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p></div>
                             </div>
                             <div class="flex" style="gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
                                 <span class="status-badge status-completed">✅ Команда собрана</span>
                                 <span>📅 ${new Date(post.completedAt).toLocaleDateString('ru-RU')}</span>
                             </div>
-                            ${post.review ? `
-                                <div style="margin-top: 12px; padding: 10px; background: rgba(255,215,0,0.1); border-radius: 12px;">
-                                    <div class="stars">${[1,2,3,4,5].map(s => `<span class="star ${s <= post.review.rating ? 'active' : ''}">★</span>`).join('')}</div>
-                                    <p class="text-gray" style="font-size: 12px; margin-top: 5px;">${escapeHtml(post.review.comment)}</p>
-                                </div>
-                            ` : ''}
+                            ${post.review ? `<div style="margin-top: 12px; padding: 10px; background: rgba(255,215,0,0.1); border-radius: 12px;"><div class="stars">${[1,2,3,4,5].map(s => `<span class="star ${s <= post.review.rating ? 'active' : ''}">★</span>`).join('')}</div><p class="text-gray" style="font-size: 12px; margin-top: 5px;">${escapeHtml(post.review.comment)}</p></div>` : ''}
                         </div>
                     `;
                 }
@@ -428,533 +326,299 @@
                 return `
                     <div class="container">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;">
-                            <div>
-                                <h1>🔍 Поиск команды</h1>
-                                <p class="text-gray">Найди тиммейтов и собери команду для CS2</p>
-                            </div>
-                            ${currentUser ? `<button class="btn btn-primary" onclick="showCreateLfgForm()">+ Создать анкету</button>` : ''}
+                            <div><h1>🔍 Поиск команды</h1><p class="text-gray">Найди тиммейтов и собери команду для CS2</p></div>
+                            ${currentUser ? `<button class="btn btn-primary" onclick="navigate('lfg-create')">+ Создать анкету</button>` : ''}
                         </div>
-                        
                         <h2 class="text-green" style="margin-bottom: 20px;">🔥 Активные анкеты</h2>
                         ${posts.length === 0 ? '<div class="card text-center">Нет активных анкет</div>' : `<div class="lfg-grid">${postsHtml}</div>`}
-                        
                         <div id="completed-section" style="margin-top: 40px;">
                             <h2 class="text-green" style="margin-bottom: 20px;">✅ Успешно собранные команды</h2>
                             ${completedPosts.length === 0 ? '<div class="card text-center">Нет завершенных анкет</div>' : `<div class="lfg-grid">${completedHtml}</div>`}
                         </div>
                     </div>
                 `;
-            } catch(e) {
-                console.error('Lfg page error:', e);
-                return '<div class="container"><div class="card text-center">Ошибка загрузки анкет</div></div>';
-            }
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
         }
 
-        // ==================== ФУНКЦИИ LFG ====================
-        window.showRespondModal = function(postId, availableRoles) {
-            if (availableRoles.length === 0) {
-                showToast('Нет доступных ролей', 'error');
-                return;
-            }
-            
-            let roleHtml = '';
-            for (const role of availableRoles) {
-                roleHtml += `<button class="btn btn-outline" style="margin: 5px;" onclick="respondToLfg('${postId}', '${role}')">${role}</button>`;
-            }
-            
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal-content" style="max-width: 400px;">
-                    <div class="modal-header">
-                        <h2 class="text-green">Выберите роль</h2>
-                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
-                    </div>
-                    <div style="text-align: center; padding: 20px;">
-                        ${roleHtml}
+        // ============ СОЗДАНИЕ АНКЕТЫ ============
+        function renderLfgCreate() {
+            return `
+                <div class="container">
+                    <div class="card" style="max-width: 800px; margin: 0 auto;">
+                        <h2 class="text-green" style="margin-bottom: 20px;">📝 Создание анкеты</h2>
+                        <form id="create-lfg-form">
+                            <div class="form-group"><label>Название анкеты *</label><input type="text" class="form-input" id="lfg-title" required placeholder="Например: Ищу тиммейтов для игры на выходных"></div>
+                            <div class="grid-2">
+                                <div class="form-group"><label>Регион</label><select class="form-input" id="lfg-region"><option value="RU">🇷🇺 Россия</option><option value="EU">🇪🇺 Европа</option><option value="NA">🇺🇸 Северная Америка</option><option value="ASIA">🌏 Азия</option></select></div>
+                                <div class="form-group"><label>Язык общения</label><select class="form-input" id="lfg-language"><option value="ru">🇷🇺 Русский</option><option value="en">🇬🇧 English</option><option value="de">🇩🇪 Deutsch</option><option value="fr">🇫🇷 Français</option><option value="es">🇪🇸 Español</option><option value="tr">🇹🇷 Türkçe</option></select></div>
+                            </div>
+                            <div class="grid-2">
+                                <div class="form-group"><label>Моя роль *</label><select class="form-input" id="lfg-myrole"><option value="IGL">👑 IGL</option><option value="AWP">🔫 AWP</option><option value="ENTRY">⚡ ENTRY</option><option value="RIFLER">🎯 RIFLER</option><option value="LURKER">👤 LURKER</option></select></div>
+                                <div class="form-group"><label>Сколько игроков нужно? (1-4)</label><div class="flex" style="gap: 8px;">${[1,2,3,4].map(n => `<button type="button" class="btn btn-outline players-btn" data-players="${n}">${n} чел</button>`).join('')}<input type="hidden" id="lfg-players" value="1"></div></div>
+                            </div>
+                            <div class="grid-2">
+                                <div class="form-group"><label>Мин. уровень FaceIt</label><select class="form-input" id="lfg-faceit"><option value="1">1 уровень</option><option value="2">2 уровень</option><option value="3">3 уровень</option><option value="4">4 уровень</option><option value="5">5 уровень</option><option value="6">6 уровень</option><option value="7">7 уровень</option><option value="8">8 уровень</option><option value="9">9 уровень</option><option value="10">10 уровень</option></select></div>
+                                <div class="form-group"><label>Мин. ранг Premier</label><select class="form-input" id="lfg-premier"><option value="0">Не важно</option><option value="5000">5000+</option><option value="10000">10000+</option><option value="15000">15000+</option><option value="20000">20000+</option><option value="25000">25000+</option><option value="30000">30000+</option></select></div>
+                            </div>
+                            <div class="form-group">
+                                <label>Расписание *</label>
+                                <div class="flex" style="gap: 10px; margin-bottom: 15px;">
+                                    <button type="button" class="btn btn-primary schedule-type-btn" data-type="daily">Ежедневно</button>
+                                    <button type="button" class="btn btn-outline schedule-type-btn" data-type="weekly">По дням недели</button>
+                                </div>
+                                <div id="daily-schedule"><input type="text" class="form-input" id="lfg-schedule" placeholder="Например: Вечера после 20:00" maxlength="50"><div class="char-counter">0/50</div></div>
+                                <div id="weekly-schedule" style="display: none;" class="weekday-schedule">
+                                    ${['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(day => `<div class="weekday-item"><div class="weekday-name">${day === 'monday' ? 'Понедельник' : day === 'tuesday' ? 'Вторник' : day === 'wednesday' ? 'Среда' : day === 'thursday' ? 'Четверг' : day === 'friday' ? 'Пятница' : day === 'saturday' ? 'Суббота' : 'Воскресенье'}</div><div style="flex:1;"><input type="text" class="weekday-input" data-day="${day}" placeholder="Введите расписание" maxlength="50"><div class="char-counter">0/50</div></div></div>`).join('')}
+                                </div>
+                            </div>
+                            <div class="form-group"><label>Какие роли нужны? *</label><div class="flex" style="gap: 10px; flex-wrap: wrap;" id="roles-checkboxes">${['IGL', 'AWP', 'ENTRY', 'RIFLER', 'LURKER'].map(r => `<label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" value="${r}"> ${r}</label>`).join('')}</div></div>
+                            <div class="form-group"><label>Описание</label><textarea class="form-input" id="lfg-description" rows="3" placeholder="Расскажите о себе, своих целях, требованиях..."></textarea></div>
+                            <div class="flex" style="justify-content: flex-end; gap: 12px; margin-top: 20px;">
+                                <button type="button" class="btn" style="background: #555;" onclick="navigate('lfg')">Отмена</button>
+                                <button type="submit" class="btn btn-primary">Создать анкету</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             `;
-            document.body.appendChild(modal);
-        };
+        }
 
-        window.respondToLfg = async function(postId, role) {
-            document.querySelector('.modal-overlay')?.remove();
-            try {
-                await api.post(`/lfg/${postId}/respond`, { role });
-                showToast('Отклик отправлен! Создатель анкеты получит уведомление', 'success');
-                renderPage();
-            } catch (err) {
-                showToast(err.response?.data?.error || 'Ошибка', 'error');
-            }
-        };
-
-        window.deleteLfgPost = async function(postId) {
-            if (await customConfirm('Удалить анкету?')) {
-                try {
-                    await api.delete(`/lfg/${postId}`);
-                    showToast('Анкета удалена', 'success');
-                    renderPage();
-                } catch (err) {
-                    showToast('Ошибка', 'error');
-                }
-            }
-        };
-
-        window.showCreateLfgForm = function() {
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal-content" style="max-width: 500px;">
-                    <div class="modal-header">
-                        <h2 class="text-green">📝 Создание анкеты</h2>
-                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
-                    </div>
-                    <form id="create-lfg-form">
-                        <div class="form-group">
-                            <label>Название анкеты *</label>
-                            <input type="text" class="form-input" id="lfg-title" required placeholder="Например: Ищу тиммейтов для игры">
-                        </div>
-                        <div class="form-group">
-                            <label>Регион</label>
-                            <select class="form-input" id="lfg-region">
-                                <option value="RU">🇷🇺 Россия</option>
-                                <option value="EU">🇪🇺 Европа</option>
-                                <option value="NA">🇺🇸 Северная Америка</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Моя роль *</label>
-                            <select class="form-input" id="lfg-myrole">
-                                <option value="IGL">👑 IGL</option>
-                                <option value="AWP">🔫 AWP</option>
-                                <option value="ENTRY">⚡ ENTRY</option>
-                                <option value="RIFLER">🎯 RIFLER</option>
-                                <option value="LURKER">👤 LURKER</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Сколько игроков нужно? (1-4)</label>
-                            <div class="flex" style="gap: 10px;">
-                                ${[1,2,3,4].map(n => `<button type="button" class="btn btn-outline players-btn" data-players="${n}">${n} чел</button>`).join('')}
-                            </div>
-                            <input type="hidden" id="lfg-players" value="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Расписание *</label>
-                            <input type="text" class="form-input" id="lfg-schedule" required placeholder="Например: Вечера после 20:00">
-                        </div>
-                        <div class="form-group">
-                            <label>Какие роли нужны?</label>
-                            <div class="flex" style="gap: 10px; flex-wrap: wrap;" id="roles-checkboxes">
-                                ${['IGL', 'AWP', 'ENTRY', 'RIFLER', 'LURKER'].map(r => `
-                                    <label style="display: flex; align-items: center; gap: 5px;">
-                                        <input type="checkbox" value="${r}"> ${r}
-                                    </label>
-                                `).join('')}
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Описание</label>
-                            <textarea class="form-input" id="lfg-description" rows="3" placeholder="Расскажите о себе..."></textarea>
-                        </div>
-                        <div class="flex" style="justify-content: flex-end; gap: 12px; margin-top: 20px;">
-                            <button type="button" class="btn" style="background: #555;" onclick="this.closest('.modal-overlay').remove()">Отмена</button>
-                            <button type="submit" class="btn btn-primary">Создать анкету</button>
-                        </div>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            
-            // Обработчики для кнопок выбора количества игроков
-            document.querySelectorAll('.players-btn').forEach(btn => {
-                btn.onclick = () => {
-                    document.querySelectorAll('.players-btn').forEach(b => b.classList.remove('btn-primary'));
-                    btn.classList.add('btn-primary');
-                    document.getElementById('lfg-players').value = btn.getAttribute('data-players');
-                };
-            });
-            document.querySelector('.players-btn').classList.add('btn-primary');
-            
-            document.getElementById('create-lfg-form').onsubmit = async (e) => {
-                e.preventDefault();
-                const title = document.getElementById('lfg-title').value;
-                const region = document.getElementById('lfg-region').value;
-                const myRole = document.getElementById('lfg-myrole').value;
-                const playersNeeded = parseInt(document.getElementById('lfg-players').value);
-                const schedule = document.getElementById('lfg-schedule').value;
-                const description = document.getElementById('lfg-description').value;
-                const rolesNeeded = {};
-                document.querySelectorAll('#roles-checkboxes input:checked').forEach(cb => {
-                    rolesNeeded[cb.value] = true;
-                });
-                
-                if (Object.keys(rolesNeeded).length === 0) {
-                    showToast('Выберите хотя бы одну роль', 'error');
-                    return;
-                }
-                
-                try {
-                    await api.post('/lfg', {
-                        title, region, myRole, playersNeeded, schedule, description,
-                        rolesNeeded,
-                        scheduleType: 'daily',
-                        minFaceitLevel: 1,
-                        minPremierRank: 0,
-                        language: 'ru'
-                    });
-                    showToast('Анкета создана!', 'success');
-                    modal.remove();
-                    renderPage();
-                } catch(err) {
-                    showToast(err.response?.data?.error || 'Ошибка', 'error');
-                }
-            };
-        };
-
-        // ==================== СТРАНИЦА ТУРНИРОВ ====================
-        async function renderTournamentsPage() {
+        // ============ ТУРНИРЫ ============
+        async function renderTournaments() {
             try {
                 const res = await api.get('/tournaments');
                 const tournaments = res.data.data || [];
                 tournamentsCache = tournaments;
-                
                 let html = '';
                 for (const t of tournaments) {
-                    html += `
-                        <div class="tournament-card" onclick="showTournamentDetails('${t.id}')">
-                            <h3 style="color: #4caf50;">${escapeHtml(t.title)}</h3>
-                            <div class="prize">💰 ${t.prizePool}</div>
-                            <p>📅 ${new Date(t.date).toLocaleDateString('ru-RU')}</p>
-                            <button class="btn btn-primary" style="margin-top: 12px; width: 100%;">Подробнее</button>
-                        </div>
-                    `;
+                    html += `<div class="tournament-card" onclick="showTournamentDetails('${t.id}')"><h3 style="color: #4caf50;">${escapeHtml(t.title)}</h3><div class="prize">💰 ${t.prizePool}</div><p>📅 ${new Date(t.date).toLocaleDateString('ru-RU')}</p><button class="btn btn-primary" style="margin-top: 12px; width: 100%;">Подробнее</button></div>`;
                 }
-                
-                return `
-                    <div class="container">
-                        <h1 style="font-size: 28px; margin-bottom: 20px;">🏆 Турниры CS2</h1>
-                        ${tournaments.length === 0 ? '<div class="card text-center">Нет турниров</div>' : `<div class="tournaments-grid">${html}</div>`}
-                    </div>
-                `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>';
-            }
+                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">🏆 Турниры CS2</h1>${tournaments.length === 0 ? '<div class="card text-center">Нет турниров</div>' : `<div class="tournaments-grid">${html}</div>`}</div>`;
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
         }
 
-        window.showTournamentDetails = function(tournamentId) {
-            const tournament = tournamentsCache.find(t => t.id === tournamentId);
-            if (!tournament) return;
-            
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal-content" style="max-width: 600px;">
-                    <div class="modal-header">
-                        <h2 class="text-green">${escapeHtml(tournament.title)}</h2>
-                        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
-                    </div>
-                    <div class="prize" style="text-align: center;">🏆 ${tournament.prizePool}</div>
-                    <p>📅 Дата: ${new Date(tournament.date).toLocaleString('ru-RU')}</p>
-                    <p>👥 Формат: ${tournament.format}</p>
-                    <p>💰 Взнос: ${tournament.entryFee} ₽</p>
-                    ${tournament.description ? `<p class="text-gray" style="margin-top: 15px;">${escapeHtml(tournament.description)}</p>` : ''}
-                    <button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="showToast('Функция в разработке', 'info'); this.closest('.modal-overlay').remove()">Зарегистрировать команду</button>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        };
-
-        // ==================== СТРАНИЦА ДРУЗЕЙ ====================
-        async function renderFriendsPage() {
-            if (!currentUser) {
-                return '<div class="container"><div class="card text-center">Войдите через Steam, чтобы видеть друзей</div></div>';
-            }
-            
+        // ============ ДРУЗЬЯ ============
+        async function renderFriends() {
+            if (!currentUser) return '<div class="container"><div class="card text-center">Войдите через Steam, чтобы видеть друзей</div></div>';
             try {
-                const [friendsRes, requestsRes, sentRes] = await Promise.all([
-                    api.get('/friends'),
-                    api.get('/friends/requests'),
-                    api.get('/friends/requests/sent')
-                ]);
+                const [friendsRes, requestsRes, sentRes] = await Promise.all([api.get('/friends'), api.get('/friends/requests'), api.get('/friends/requests/sent')]);
                 const friends = friendsRes.data.data || [];
                 const requests = requestsRes.data.data || [];
-                const sentRequests = sentRes.data.data || [];
+                const sent = sentRes.data.data || [];
                 
-                let friendsHtml = '';
-                for (const friend of friends) {
-                    friendsHtml += `
-                        <div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; cursor: pointer; margin-bottom: 10px;" onclick="navigate('profile', { id: '${friend.steamId}' })">
-                            <img src="${friend.steamAvatar}" style="width: 40px; height: 40px; border-radius: 50%;">
-                            <div style="flex: 1;">
-                                <h4 style="font-size: 16px;">${escapeHtml(friend.displayName || friend.steamNickname)}</h4>
-                                <p class="text-muted" style="font-size: 11px;">${friend.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</p>
-                            </div>
-                            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); navigate('chat', { id: '${friend.id}' })">💬</button>
-                            <button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); removeFriend('${friend.id}')">🗑</button>
-                        </div>
-                    `;
-                }
+                let friendsHtml = '', requestsHtml = '', sentHtml = '';
+                for (const f of friends) friendsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; cursor: pointer; margin-bottom: 10px;" onclick="navigate('profile', { id: '${f.steamId}' })"><img src="${f.steamAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(f.displayName || f.steamNickname)}</h4><p class="text-muted" style="font-size: 11px;">${f.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</p></div><button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); navigate('chat', { id: '${f.id}' })">💬</button><button class="btn" style="background: #f44336; padding: 6px 12px; font-size: 12px;" onclick="event.stopPropagation(); removeFriend('${f.id}')">🗑</button></div>`;
+                for (const r of requests) requestsHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${r.fromAvatar}" style="width: 40px; height: 40px; border-radius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(r.fromName)}</h4></div><button class="btn btn-primary" style="padding: 6px 12px;" onclick="acceptFriendRequest('${r.id}')">✅</button><button class="btn" style="background: #555; padding: 6px 12px;" onclick="declineFriendRequest('${r.id}')">❌</button></div>`;
+                for (const s of sent) sentHtml += `<div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;"><img src="${s.toAvatar}" style="width: 40px; height: 40px; borderRadius: 50%;"><div style="flex:1;"><h4 style="font-size: 16px;">${escapeHtml(s.toName)}</h4><p class="text-muted" style="font-size: 10px;">Ожидает ответа</p></div><button class="btn" style="background: #f44336; padding: 6px 12px;" onclick="cancelFriendRequest('${s.id}')">Отменить</button></div>`;
                 
-                let requestsHtml = '';
-                for (const req of requests) {
-                    requestsHtml += `
-                        <div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
-                            <img src="${req.fromAvatar}" style="width: 40px; height: 40px; border-radius: 50%;">
-                            <div style="flex: 1;">
-                                <h4 style="font-size: 16px;">${escapeHtml(req.fromName)}</h4>
-                            </div>
-                            <button class="btn btn-primary" style="padding: 6px 12px;" onclick="acceptFriendRequest('${req.id}')">✅</button>
-                            <button class="btn" style="background: #555; padding: 6px 12px;" onclick="declineFriendRequest('${req.id}')">❌</button>
-                        </div>
-                    `;
-                }
-                
-                let sentHtml = '';
-                for (const req of sentRequests) {
-                    sentHtml += `
-                        <div class="card compact-friend" style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
-                            <img src="${req.toAvatar}" style="width: 40px; height: 40px; border-radius: 50%;">
-                            <div style="flex: 1;">
-                                <h4 style="font-size: 16px;">${escapeHtml(req.toName)}</h4>
-                                <p class="text-muted" style="font-size: 10px;">Ожидает ответа</p>
-                            </div>
-                            <button class="btn" style="background: #f44336; padding: 6px 12px;" onclick="cancelFriendRequest('${req.id}')">Отменить</button>
-                        </div>
-                    `;
-                }
-                
-                return `
-                    <div class="container">
-                        <h1 style="font-size: 28px; margin-bottom: 20px;">👥 Друзья</h1>
-                        
-                        <div class="flex" style="margin-bottom: 20px; gap: 10px;">
-                            <button class="btn btn-primary" onclick="showFriendsTab('friends')">Друзья (${friends.length})</button>
-                            <button class="btn btn-outline" onclick="showFriendsTab('requests')">Входящие (${requests.length})</button>
-                            <button class="btn btn-outline" onclick="showFriendsTab('sent')">Исходящие (${sentRequests.length})</button>
-                        </div>
-                        
-                        <div id="friends-tab-friends">
-                            ${friends.length === 0 ? '<div class="card text-center">Нет друзей</div>' : friendsHtml}
-                        </div>
-                        <div id="friends-tab-requests" style="display: none;">
-                            ${requests.length === 0 ? '<div class="card text-center">Нет входящих заявок</div>' : requestsHtml}
-                        </div>
-                        <div id="friends-tab-sent" style="display: none;">
-                            ${sentRequests.length === 0 ? '<div class="card text-center">Нет отправленных заявок</div>' : sentHtml}
-                        </div>
-                    </div>
-                `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>';
-            }
+                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">👥 Друзья</h1><div class="flex" style="margin-bottom: 20px; gap: 10px;"><button class="btn btn-primary" onclick="showFriendsTab('friends')">Друзья (${friends.length})</button><button class="btn btn-outline" onclick="showFriendsTab('requests')">Входящие (${requests.length})</button><button class="btn btn-outline" onclick="showFriendsTab('sent')">Исходящие (${sent.length})</button></div><div id="friends-tab-friends">${friends.length === 0 ? '<div class="card text-center">Нет друзей</div>' : friendsHtml}</div><div id="friends-tab-requests" style="display: none;">${requests.length === 0 ? '<div class="card text-center">Нет заявок</div>' : requestsHtml}</div><div id="friends-tab-sent" style="display: none;">${sent.length === 0 ? '<div class="card text-center">Нет отправленных заявок</div>' : sentHtml}</div></div>`;
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
         }
 
-        window.showFriendsTab = function(tab) {
-            const friendsTab = document.getElementById('friends-tab-friends');
-            const requestsTab = document.getElementById('friends-tab-requests');
-            const sentTab = document.getElementById('friends-tab-sent');
-            const btns = document.querySelectorAll('.flex button');
-            
-            friendsTab.style.display = 'none';
-            requestsTab.style.display = 'none';
-            sentTab.style.display = 'none';
-            
-            if (tab === 'friends') {
-                friendsTab.style.display = 'block';
-                btns[0].className = 'btn btn-primary';
-                btns[1].className = 'btn btn-outline';
-                btns[2].className = 'btn btn-outline';
-            } else if (tab === 'requests') {
-                requestsTab.style.display = 'block';
-                btns[0].className = 'btn btn-outline';
-                btns[1].className = 'btn btn-primary';
-                btns[2].className = 'btn btn-outline';
-            } else {
-                sentTab.style.display = 'block';
-                btns[0].className = 'btn btn-outline';
-                btns[1].className = 'btn btn-outline';
-                btns[2].className = 'btn btn-primary';
-            }
-        };
-
-        window.acceptFriendRequest = async function(requestId) {
-            try {
-                await api.post(`/friends/request/${requestId}/accept`);
-                showToast('Заявка принята', 'success');
-                renderPage();
-            } catch(e) { showToast('Ошибка', 'error'); }
-        };
-
-        window.declineFriendRequest = async function(requestId) {
-            try {
-                await api.post(`/friends/request/${requestId}/decline`);
-                showToast('Заявка отклонена', 'info');
-                renderPage();
-            } catch(e) { showToast('Ошибка', 'error'); }
-        };
-
-        window.cancelFriendRequest = async function(requestId) {
-            if (await customConfirm('Отменить заявку?')) {
-                try {
-                    await api.delete(`/friends/request/${requestId}`);
-                    showToast('Заявка отменена', 'success');
-                    renderPage();
-                } catch(e) { showToast('Ошибка', 'error'); }
-            }
-        };
-
-        window.removeFriend = async function(friendId) {
-            if (await customConfirm('Удалить из друзей?')) {
-                try {
-                    await api.delete(`/friends/${friendId}`);
-                    showToast('Удалён из друзей', 'success');
-                    renderPage();
-                } catch(e) { showToast('Ошибка', 'error'); }
-            }
-        };
-
-        // ==================== СТРАНИЦА ЧАТА ====================
-        async function renderChatPage(userId) {
-            if (!currentUser) return '<div class="container"><div class="card text-center">Войдите через Steam</div></div>';
-            
-            try {
-                const userRes = await api.get(`/user/by-id/${userId}`);
-                const chatUser = userRes.data.user;
-                if (!chatUser) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-                
-                const messagesRes = await api.get(`/messages/${userId}`);
-                const messages = messagesRes.data.data || [];
-                
-                let messagesHtml = '';
-                for (const msg of messages) {
-                    const isOwn = msg.fromId === currentUser.id;
-                    messagesHtml += `
-                        <div style="text-align: ${isOwn ? 'right' : 'left'}; margin-bottom: 15px;">
-                            <div style="display: inline-block; background: ${isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)'}; padding: 10px 14px; border-radius: 16px; max-width: 75%;">
-                                <p style="font-size: 13px; margin-bottom: 4px;">${escapeHtml(msg.text)}</p>
-                                <p style="font-size: 9px; color: rgba(255,255,255,0.4);">${formatTime(msg.createdAt)}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                return `
-                    <div class="container" style="max-width: 800px; margin: 0 auto;">
-                        <div class="card" style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                            <button class="btn" style="background: #555; padding: 8px 12px;" onclick="navigate('friends')">← Назад</button>
-                            <img src="${chatUser.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%;">
-                            <div style="flex: 1;">
-                                <h3>${escapeHtml(chatUser.displayName || chatUser.steamNickname)}</h3>
-                            </div>
-                        </div>
-                        
-                        <div class="card" style="height: 450px; display: flex; flex-direction: column;">
-                            <div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 16px;">
-                                ${messages.length === 0 ? '<div class="text-center" style="padding: 40px;">Нет сообщений</div>' : messagesHtml}
-                            </div>
-                            
-                            <form id="chat-form" style="display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(76,0,255,0.2);">
-                                <input type="text" id="chat-input" class="form-input" style="flex: 1;" placeholder="Сообщение...">
-                                <button type="submit" class="btn btn-primary">📤</button>
-                            </form>
-                        </div>
-                    </div>
-                `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Ошибка загрузки чата</div></div>';
-            }
-        }
-
-        // ==================== СТРАНИЦА ПРОФИЛЯ ====================
-        async function renderProfilePage(steamId) {
+        // ============ ПРОФИЛЬ ============
+        async function renderProfile(steamId) {
             if (!steamId) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
             try {
                 const res = await api.get(`/profile/${steamId}`);
                 const profile = res.data.user;
                 if (!profile) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-                
-                const isOwnProfile = currentUser?.steamId === steamId;
-                
-                return `
-                    <div class="container">
-                        <div class="card">
-                            <div class="profile-header" style="flex-wrap: wrap;">
-                                <img src="${profile.steamAvatar}" class="profile-avatar">
-                                <div style="flex: 1;">
-                                    <h1>${escapeHtml(profile.displayName || profile.steamNickname)}</h1>
-                                    <p class="text-gray"><i class="fab fa-steam"></i> ${profile.steamNickname}</p>
-                                    <p class="text-muted" style="font-size: 11px;">ID: ${profile.id} | На сайте с: ${new Date(profile.createdAt).toLocaleDateString('ru-RU')}</p>
-                                    ${profile.isBanned ? '<p style="color: #f44336;">⚠️ Пользователь забанен</p>' : ''}
-                                    <div class="flex" style="margin-top: 10px; gap: 10px;">
-                                        <span class="text-green">${profile.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</span>
-                                        <span class="text-green">${profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'}</span>
-                                        ${profile.hasMic ? '<span class="text-green">🎤 Микрофон</span>' : ''}
-                                    </div>
-                                </div>
-                                ${!isOwnProfile && currentUser ? `<div><button class="btn btn-primary" onclick="sendFriendRequest('${profile.id}')">➕ Добавить в друзья</button></div>` : ''}
-                            </div>
-                            ${profile.bio ? `<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;"><h3 class="text-green">О себе</h3><p class="text-gray">${escapeHtml(profile.bio)}</p></div>` : ''}
-                        </div>
-                    </div>
-                `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
-            }
+                const isOwn = currentUser?.steamId === steamId;
+                return `<div class="container"><div class="card"><div class="profile-header" style="flex-wrap: wrap;"><img src="${profile.steamAvatar}" class="profile-avatar"><div style="flex:1;"><h1>${escapeHtml(profile.displayName || profile.steamNickname)}</h1><p class="text-gray"><i class="fab fa-steam"></i> ${profile.steamNickname}</p><p class="text-muted" style="font-size: 11px;">ID: ${profile.id} | На сайте с: ${new Date(profile.createdAt).toLocaleDateString('ru-RU')}</p>${profile.isBanned ? '<p style="color: #f44336;">⚠️ Пользователь забанен</p>' : ''}<div class="flex" style="margin-top: 10px; gap: 10px;"><span class="text-green">${profile.region === 'RU' ? '🇷🇺 Россия' : '🌏 Другой'}</span><span class="text-green">${profile.role === 'RIFLER' ? '🎯 Рифлер' : profile.role === 'AWP' ? '🔫 AWP' : profile.role === 'IGL' ? '👑 IGL' : '🛡️ Саппорт'}</span>${profile.hasMic ? '<span class="text-green">🎤 Микрофон</span>' : ''}</div></div>${!isOwn && currentUser ? `<div><button class="btn btn-primary" onclick="sendFriendRequest('${profile.id}')">➕ Добавить в друзья</button></div>` : ''}</div>${profile.bio ? `<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333;"><h3 class="text-green">О себе</h3><p class="text-gray">${escapeHtml(profile.bio)}</p></div>` : ''}</div></div>`;
+            } catch(e) { return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>'; }
         }
 
-        window.sendFriendRequest = async function(userId) {
+        // ============ ЧАТ ============
+        async function renderChat(userId) {
+            if (!currentUser) return '<div class="container"><div class="card text-center">Войдите через Steam</div></div>';
             try {
-                await api.post(`/friends/request/${userId}`);
-                showToast('Заявка отправлена', 'success');
-            } catch(err) {
-                showToast(err.response?.data?.error || 'Ошибка', 'error');
+                const userRes = await api.get(`/user/by-id/${userId}`);
+                const chatUser = userRes.data.user;
+                if (!chatUser) return '<div class="container"><div class="card text-center">Пользователь не найден</div></div>';
+                const messagesRes = await api.get(`/messages/${userId}`);
+                const messages = messagesRes.data.data || [];
+                let msgsHtml = '';
+                for (const msg of messages) {
+                    const isOwn = msg.fromId === currentUser.id;
+                    msgsHtml += `<div style="text-align: ${isOwn ? 'right' : 'left'}; margin-bottom: 15px;"><div style="display: inline-block; background: ${isOwn ? 'var(--primary)' : 'rgba(255,255,255,0.08)'}; padding: 10px 14px; border-radius: 16px; max-width: 75%;"><p style="font-size: 13px; margin-bottom: 4px;">${escapeHtml(msg.text)}</p><p style="font-size: 9px; color: rgba(255,255,255,0.4);">${formatTime(msg.createdAt)}</p></div></div>`;
+                }
+                return `<div class="container" style="max-width: 800px; margin: 0 auto;"><div class="card" style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;"><button class="btn" style="background: #555; padding: 8px 12px;" onclick="navigate('friends')">← Назад</button><img src="${chatUser.steamAvatar}" style="width: 48px; height: 48px; border-radius: 50%;"><div style="flex:1;"><h3>${escapeHtml(chatUser.displayName || chatUser.steamNickname)}</h3></div></div><div class="card" style="height: 450px; display: flex; flex-direction: column;"><div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 16px;">${messages.length === 0 ? '<div class="text-center" style="padding: 40px;">Нет сообщений</div>' : msgsHtml}</div><form id="chat-form" style="display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(76,0,255,0.2);"><input type="text" id="chat-input" class="form-input" style="flex: 1;" placeholder="Сообщение..."><button type="submit" class="btn btn-primary">📤</button></form></div></div>`;
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки чата</div></div>'; }
+        }
+
+        // ============ АДМИН ============
+        async function renderAdmin() {
+            if (!currentUser?.isAdmin) return '<div class="container"><div class="card text-center">Доступ запрещён</div></div>';
+            try {
+                const users = (await api.get('/admin/users')).data.data || [];
+                let rows = '';
+                for (const u of users) {
+                    rows += `<tr style="border-bottom: 1px solid #333; cursor: pointer;" onclick="navigate('profile', { id: '${u.steamId}' })"><td style="padding: 10px;"><div style="display: flex; align-items: center; gap: 8px;"><img src="${u.steamAvatar}" style="width: 28px; height: 28px; border-radius: 50%;">${escapeHtml(u.displayName || u.steamNickname)}</div></td><td style="padding: 10px;">${u.balance} ₽</td><td style="padding: 10px;">${u.isAdmin ? '👑 Админ' : '👤 Пользователь'}</td><td style="padding: 10px;">${u.isBanned ? '🔴 Забанен' : '🟢 Активен'}</td></tr>`;
+                }
+                return `<div class="container"><h1 style="font-size: 28px; margin-bottom: 20px;">👑 Админ-панель</h1><div class="card"><h2 class="text-green">Все пользователи</h2><div style="overflow-x: auto; margin-top: 15px;"><table style="width: 100%; font-size: 13px;"><thead><tr style="border-bottom: 1px solid #333;"><th style="padding: 8px; text-align: left;">Ник</th><th style="padding: 8px; text-align: left;">Баланс</th><th style="padding: 8px; text-align: left;">Статус</th><th style="padding: 8px; text-align: left;">Бан</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+            } catch(e) { return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>'; }
+        }
+
+        // ============ ФУНКЦИИ ДЕЙСТВИЙ ============
+        window.showRespondModal = function(postId, roles) {
+            let btns = '';
+            for (const r of roles) btns += `<button class="btn btn-outline" style="margin: 5px;" onclick="respondToLfg('${postId}', '${r}')">${r}</button>`;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `<div class="modal-content" style="max-width: 400px;"><div class="modal-header"><h2 class="text-green">Выберите роль</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div style="text-align: center; padding: 20px;">${btns}</div></div>`;
+            document.body.appendChild(modal);
+        };
+
+        window.respondToLfg = async function(postId, role) {
+            document.querySelector('.modal-overlay')?.remove();
+            try { await api.post(`/lfg/${postId}/respond`, { role }); showToast('Отклик отправлен!', 'success'); renderPage(); } 
+            catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
+        };
+
+        window.loadResponses = async function(postId) {
+            try {
+                const res = await api.get(`/lfg/${postId}/responses`);
+                responsesCache[postId] = res.data.data || [];
+                renderPage();
+            } catch(e) { showToast('Ошибка загрузки откликов', 'error'); }
+        };
+
+        window.acceptResponse = async function(postId, responseId) {
+            try { await api.post(`/lfg/${postId}/responses/${responseId}/accept`); showToast('Игрок принят!', 'success'); renderPage(); } 
+            catch(err) { showToast('Ошибка', 'error'); }
+        };
+
+        window.rejectResponse = async function(postId, responseId) {
+            try { await api.post(`/lfg/${postId}/responses/${responseId}/reject`); showToast('Отклик отклонен', 'info'); renderPage(); } 
+            catch(err) { showToast('Ошибка', 'error'); }
+        };
+
+        window.deleteLfgPost = async function(postId) {
+            if (await customConfirm('Удалить анкету?')) {
+                try { await api.delete(`/lfg/${postId}`); showToast('Анкета удалена', 'success'); renderPage(); } 
+                catch(err) { showToast('Ошибка', 'error'); }
             }
         };
 
-        // ==================== СТРАНИЦА АДМИНА ====================
-        async function renderAdminPage() {
-            if (!currentUser?.isAdmin) return '<div class="container"><div class="card text-center">Доступ запрещён</div></div>';
-            try {
-                const usersRes = await api.get('/admin/users');
-                const users = usersRes.data.data || [];
-                let usersHtml = '';
-                for (const u of users) {
-                    usersHtml += `
-                        <tr style="border-bottom: 1px solid #333; cursor: pointer;" onclick="navigate('profile', { id: '${u.steamId}' })">
-                            <td style="padding: 10px;"><div style="display: flex; align-items: center; gap: 8px;"><img src="${u.steamAvatar}" style="width: 28px; height: 28px; border-radius: 50%;">${escapeHtml(u.displayName || u.steamNickname)}</div></td>
-                            <td style="padding: 10px;">${u.balance} ₽</td>
-                            <td style="padding: 10px;">${u.isAdmin ? '👑 Админ' : '👤 Пользователь'}</td>
-                            <td style="padding: 10px;">${u.isBanned ? '🔴 Забанен' : '🟢 Активен'}</td>
-                        </tr>
-                    `;
-                }
-                return `
-                    <div class="container">
-                        <h1 style="font-size: 28px; margin-bottom: 20px;">👑 Админ-панель</h1>
-                        <div class="card">
-                            <h2 class="text-green">Все пользователи</h2>
-                            <div style="overflow-x: auto; margin-top: 15px;">
-                                <table style="width: 100%; font-size: 13px;">
-                                    <thead><tr style="border-bottom: 1px solid #333;"><th style="padding: 8px; text-align: left;">Ник</th><th style="padding: 8px; text-align: left;">Баланс</th><th style="padding: 8px; text-align: left;">Статус</th><th style="padding: 8px; text-align: left;">Бан</th></tr></thead>
-                                    <tbody>${usersHtml}</tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } catch(e) {
-                return '<div class="container"><div class="card text-center">Ошибка загрузки</div></div>';
-            }
-        }
+        window.sendFriendRequest = async function(userId) {
+            try { await api.post(`/friends/request/${userId}`); showToast('Заявка отправлена', 'success'); } 
+            catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
+        };
 
-        // ==================== ПРИВЯЗКА СОБЫТИЙ ====================
-        function attachEventListeners() {
+        window.acceptFriendRequest = async function(requestId) {
+            try { await api.post(`/friends/request/${requestId}/accept`); showToast('Заявка принята', 'success'); renderPage(); } 
+            catch(e) { showToast('Ошибка', 'error'); }
+        };
+
+        window.declineFriendRequest = async function(requestId) {
+            try { await api.post(`/friends/request/${requestId}/decline`); showToast('Заявка отклонена', 'info'); renderPage(); } 
+            catch(e) { showToast('Ошибка', 'error'); }
+        };
+
+        window.cancelFriendRequest = async function(requestId) {
+            if (await customConfirm('Отменить заявку?')) {
+                try { await api.delete(`/friends/request/${requestId}`); showToast('Заявка отменена', 'success'); renderPage(); } 
+                catch(e) { showToast('Ошибка', 'error'); }
+            }
+        };
+
+        window.removeFriend = async function(friendId) {
+            if (await customConfirm('Удалить из друзей?')) {
+                try { await api.delete(`/friends/${friendId}`); showToast('Удалён из друзей', 'success'); renderPage(); } 
+                catch(e) { showToast('Ошибка', 'error'); }
+            }
+        };
+
+        window.showTournamentDetails = function(tournamentId) {
+            const t = tournamentsCache.find(t => t.id === tournamentId);
+            if (!t) return;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `<div class="modal-content" style="max-width: 600px;"><div class="modal-header"><h2 class="text-green">${escapeHtml(t.title)}</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div class="prize" style="text-align: center;">🏆 ${t.prizePool}</div><p>📅 Дата: ${new Date(t.date).toLocaleString('ru-RU')}</p><p>👥 Формат: ${t.format}</p><p>💰 Взнос: ${t.entryFee} ₽</p>${t.description ? `<p class="text-gray" style="margin-top: 15px;">${escapeHtml(t.description)}</p>` : ''}<button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="showToast('Функция в разработке', 'info'); this.closest('.modal-overlay').remove()">Зарегистрировать команду</button></div>`;
+            document.body.appendChild(modal);
+        };
+
+        window.showFriendsTab = function(tab) {
+            const friends = document.getElementById('friends-tab-friends');
+            const requests = document.getElementById('friends-tab-requests');
+            const sent = document.getElementById('friends-tab-sent');
+            const btns = document.querySelectorAll('.flex button');
+            friends.style.display = 'none';
+            requests.style.display = 'none';
+            sent.style.display = 'none';
+            if (tab === 'friends') { friends.style.display = 'block'; btns[0].className = 'btn btn-primary'; btns[1].className = 'btn btn-outline'; btns[2].className = 'btn btn-outline'; }
+            else if (tab === 'requests') { requests.style.display = 'block'; btns[0].className = 'btn btn-outline'; btns[1].className = 'btn btn-primary'; btns[2].className = 'btn btn-outline'; }
+            else { sent.style.display = 'block'; btns[0].className = 'btn btn-outline'; btns[1].className = 'btn btn-outline'; btns[2].className = 'btn btn-primary'; }
+        };
+
+        // ============ ПРИВЯЗКА СОБЫТИЙ ============
+        function attachEvents() {
             document.querySelectorAll('[data-page]').forEach(el => {
-                el.removeEventListener('click', handleNavClick);
-                el.addEventListener('click', handleNavClick);
+                el.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = el.getAttribute('data-page');
+                    if (page === 'profile') navigate(page, { id: el.getAttribute('data-steamid') });
+                    else navigate(page);
+                });
             });
+            
+            const form = document.getElementById('create-lfg-form');
+            if (form) {
+                document.querySelectorAll('.players-btn').forEach(btn => {
+                    btn.onclick = () => {
+                        document.querySelectorAll('.players-btn').forEach(b => b.classList.remove('btn-primary'));
+                        btn.classList.add('btn-primary');
+                        document.getElementById('lfg-players').value = btn.getAttribute('data-players');
+                    };
+                });
+                document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                    btn.onclick = () => {
+                        document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('btn-primary'));
+                        btn.classList.add('btn-primary');
+                        const daily = document.getElementById('daily-schedule');
+                        const weekly = document.getElementById('weekly-schedule');
+                        if (btn.getAttribute('data-type') === 'daily') { daily.style.display = 'block'; weekly.style.display = 'none'; }
+                        else { daily.style.display = 'none'; weekly.style.display = 'block'; }
+                    };
+                });
+                document.querySelectorAll('.weekday-input').forEach(inp => {
+                    inp.addEventListener('input', function() { this.nextElementSibling.textContent = `${this.value.length}/50`; });
+                });
+                document.getElementById('lfg-schedule')?.addEventListener('input', function() { this.nextElementSibling.textContent = `${this.value.length}/50`; });
+                document.querySelector('.players-btn')?.classList.add('btn-primary');
+                form.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const scheduleType = document.querySelector('.schedule-type-btn.btn-primary').getAttribute('data-type');
+                    let schedule = '';
+                    let weekSchedule = null;
+                    if (scheduleType === 'daily') schedule = document.getElementById('lfg-schedule').value;
+                    else {
+                        weekSchedule = {};
+                        document.querySelectorAll('.weekday-input').forEach(inp => { weekSchedule[inp.getAttribute('data-day')] = inp.value; });
+                        schedule = JSON.stringify(weekSchedule);
+                    }
+                    const rolesNeeded = {};
+                    document.querySelectorAll('#roles-checkboxes input:checked').forEach(cb => { rolesNeeded[cb.value] = true; });
+                    if (Object.keys(rolesNeeded).length === 0) { showToast('Выберите хотя бы одну роль', 'error'); return; }
+                    try {
+                        await api.post('/lfg', {
+                            title: document.getElementById('lfg-title').value,
+                            region: document.getElementById('lfg-region').value,
+                            myRole: document.getElementById('lfg-myrole').value,
+                            playersNeeded: parseInt(document.getElementById('lfg-players').value),
+                            schedule: schedule,
+                            scheduleType: scheduleType,
+                            weekSchedule: weekSchedule,
+                            description: document.getElementById('lfg-description').value,
+                            rolesNeeded: rolesNeeded,
+                            minFaceitLevel: parseInt(document.getElementById('lfg-faceit').value),
+                            minPremierRank: parseInt(document.getElementById('lfg-premier').value),
+                            language: document.getElementById('lfg-language').value
+                        });
+                        showToast('Анкета создана!', 'success');
+                        navigate('lfg');
+                    } catch(err) { showToast(err.response?.data?.error || 'Ошибка', 'error'); }
+                };
+            }
             
             const chatForm = document.getElementById('chat-form');
             if (chatForm) {
@@ -964,56 +628,25 @@
                     const text = input.value.trim();
                     if (!text) return;
                     const userId = currentPage.split('/chat/')[1];
-                    try {
-                        await api.post(`/messages/${userId}`, { text });
-                        input.value = '';
-                        renderPage();
-                    } catch(err) {
-                        showToast('Ошибка отправки', 'error');
-                    }
+                    try { await api.post(`/messages/${userId}`, { text }); input.value = ''; renderPage(); } 
+                    catch(err) { showToast('Ошибка отправки', 'error'); }
                 };
-            }
-            
-            // Обновление чата каждые 3 секунды
-            if (currentPage.startsWith('chat/')) {
-                setInterval(() => {
-                    if (currentPage.startsWith('chat/')) renderPage();
-                }, 3000);
+                setInterval(() => { if (currentPage.startsWith('chat/')) renderPage(); }, 3000);
             }
         }
 
-        function handleNavClick(e) {
-            e.preventDefault();
-            const page = this.getAttribute('data-page');
-            if (page === 'profile') {
-                const steamId = this.getAttribute('data-steamid');
-                navigate(page, { id: steamId });
-            } else {
-                navigate(page);
-            }
-        }
-
-        // ==================== ИНИЦИАЛИЗАЦИЯ ====================
+        // ============ ЗАПУСК ============
         async function init() {
             await loadAuth();
             updateOnlineCount();
             sendHeartbeat();
-            
             setInterval(updateOnlineCount, 30000);
             setInterval(sendHeartbeat, 30000);
             setInterval(() => { if (currentUser) loadUnreadCounts(); }, 10000);
-            
-            window.addEventListener('popstate', () => {
-                const path = window.location.pathname.slice(1) || 'home';
-                currentPage = path;
-                renderPage();
-            });
-            
-            const initialPath = window.location.pathname.slice(1) || 'home';
-            currentPage = initialPath;
+            window.addEventListener('popstate', () => { currentPage = window.location.pathname.slice(1) || 'home'; renderPage(); });
+            currentPage = window.location.pathname.slice(1) || 'home';
             renderPage();
         }
-        
         init();
     </script>
 </body>

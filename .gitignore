@@ -1,7 +1,3 @@
-# Зависимости
-node_modules/
-server/node_modules/
-
 # Локальные файлы окружения (НЕ КОММИТИМ!)
 .env
 server/.env
