@@ -16,6 +16,22 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// В начало файла, после других require
+const { v4: uuidv4 } = require('uuid');
+const YooKassa = require('yookassa-sdk-nodejs');
+
+// Инициализация ЮKassa
+let yooKassa = null;
+if (process.env.YKASSA_SHOP_ID && process.env.YKASSA_SECRET_KEY) {
+    yooKassa = new YooKassa({
+        shopId: process.env.YKASSA_SHOP_ID,
+        secretKey: process.env.YKASSA_SECRET_KEY
+    });
+    console.log('✅ ЮKassa initialized');
+} else {
+    console.log('⚠️ ЮKassa not configured - payments disabled');
+}
+
 // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function toCamelCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -1016,6 +1032,189 @@ app.get('/healthz', (req, res) => { res.status(200).json({ status: 'ok' }); });
 
 // ============= СТАТИКА =============
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
+
+// ============= ПЛАТЕЖИ ЮKASSA =============
+
+// Создание платежа
+app.post('/api/payments/create', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    if (!yooKassa) {
+        return res.status(503).json({ error: 'Платежная система не настроена' });
+    }
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const { amount, returnUrl } = req.body;
+        
+        // Проверки
+        const minAmount = 100;
+        const maxAmount = 100000;
+        if (!amount || amount < minAmount || amount > maxAmount) {
+            return res.status(400).json({ error: `Сумма должна быть от ${minAmount} до ${maxAmount} ₽` });
+        }
+        
+        const idempotenceKey = uuidv4();
+        const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        
+        // Сохраняем информацию о платеже в БД
+        await query(`
+            CREATE TABLE IF NOT EXISTS payments (
+                id TEXT PRIMARY KEY,
+                user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                amount INTEGER NOT NULL,
+                status TEXT DEFAULT 'pending',
+                yookassa_id TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                completed_at TIMESTAMP
+            )
+        `);
+        
+        await query(
+            'INSERT INTO payments (id, user_id, amount, status) VALUES ($1, $2, $3, $4)',
+            [paymentId, user.id, amount, 'pending']
+        );
+        
+        // Создаём платеж в ЮKassa
+        const payment = await yooKassa.createPayment({
+            amount: {
+                value: amount.toString(),
+                currency: 'RUB'
+            },
+            payment_method_data: {
+                type: 'bank_card'
+            },
+            confirmation: {
+                type: 'redirect',
+                return_url: returnUrl || `${FRONTEND_URL}/profile/${user.steam_id}`
+            },
+            description: `Пополнение баланса BARSIDE CS2: ${amount} ₽`,
+            metadata: {
+                payment_id: paymentId,
+                user_id: user.id
+            }
+        }, idempotenceKey);
+        
+        // Обновляем запись с yookassa_id
+        await query('UPDATE payments SET yookassa_id = $1 WHERE id = $2', [payment.id, paymentId]);
+        
+        res.json({
+            success: true,
+            paymentId: paymentId,
+            confirmationUrl: payment.confirmation.confirmation_url
+        });
+        
+    } catch (err) {
+        console.error('Create payment error:', err);
+        res.status(500).json({ error: 'Ошибка при создании платежа: ' + err.message });
+    }
+});
+
+// Webhook для обработки статусов платежей
+app.post('/api/payments/webhook', async (req, res) => {
+    try {
+        const event = req.body;
+        
+        // Проверяем, что это событие от ЮKassa
+        if (event.object && event.object.status) {
+            const yookassaId = event.object.id;
+            const paymentStatus = event.object.status;
+            
+            // Находим платеж в БД
+            const paymentRes = await query('SELECT * FROM payments WHERE yookassa_id = $1', [yookassaId]);
+            
+            if (paymentRes.rows.length === 0) {
+                console.log('Payment not found:', yookassaId);
+                return res.status(200).send('OK');
+            }
+            
+            const payment = paymentRes.rows[0];
+            
+            // Если платеж уже обработан
+            if (payment.status !== 'pending') {
+                return res.status(200).send('OK');
+            }
+            
+            if (paymentStatus === 'succeeded') {
+                // Платеж успешен - начисляем баланс
+                await query('UPDATE payments SET status = $1, completed_at = NOW() WHERE id = $2', ['completed', payment.id]);
+                
+                // Обновляем баланс пользователя
+                const currentBalance = await getUserBalance(payment.user_id);
+                await updateUserBalance(payment.user_id, currentBalance + payment.amount);
+                
+                console.log(`✅ Payment succeeded: ${payment.id}, user: ${payment.user_id}, amount: ${payment.amount}`);
+            } else if (paymentStatus === 'canceled') {
+                // Платеж отменен
+                await query('UPDATE payments SET status = $1 WHERE id = $2', ['canceled', payment.id]);
+                console.log(`❌ Payment canceled: ${payment.id}`);
+            }
+        }
+        
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Webhook error:', err);
+        res.status(200).send('OK'); // Всегда возвращаем 200 для ЮKassa
+    }
+});
+
+// Проверка статуса платежа
+app.get('/api/payments/:paymentId/status', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const paymentRes = await query('SELECT * FROM payments WHERE id = $1 AND user_id = $2', [req.params.paymentId, user.id]);
+        
+        if (paymentRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+        
+        res.json({
+            status: paymentRes.rows[0].status,
+            amount: paymentRes.rows[0].amount,
+            completedAt: paymentRes.rows[0].completed_at
+        });
+        
+    } catch (err) {
+        console.error('Payment status error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Получить историю платежей пользователя
+app.get('/api/payments/history', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const user = await findUserById(payload.userId);
+        if (!user) return res.status(401).json({ error: 'User not found' });
+        
+        const paymentsRes = await query(`
+            SELECT id, amount, status, created_at, completed_at 
+            FROM payments 
+            WHERE user_id = $1 
+            ORDER BY created_at DESC 
+            LIMIT 50
+        `, [user.id]);
+        
+        res.json({ data: paymentsRes.rows });
+        
+    } catch (err) {
+        console.error('Payment history error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // ============= ЗАПУСК =============
 async function startServer() {
