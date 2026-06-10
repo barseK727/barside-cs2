@@ -4,6 +4,8 @@ const axios = require('axios');
 const cookieParser = require('cookie-parser');
 const app = express();
 const PORT = process.env.PORT || 5000;
+const { v4: uuidv4 } = require('uuid');
+const { YooKassa } = require('@webzaytsev/yookassa-ts-sdk');
 
 const { Pool } = require('pg');
 
@@ -18,7 +20,6 @@ const pool = new Pool({
 
 // В начало файла, после других require
 const { v4: uuidv4 } = require('uuid');
-const YooKassa = require('yookassa-sdk-nodejs');
 
 // Инициализация ЮKassa
 let yooKassa = null;
