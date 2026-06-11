@@ -93,9 +93,34 @@ async function getActiveLfgPosts() {
         SELECT l.*, 
                json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname, 
                                  'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 
-                                 'region', u.region, 'role', u.role) as author
+                                 'region', u.region, 'role', u.role) as author,
+               COALESCE(accepted.accepted_players, '[]'::json) as accepted_players,
+               COALESCE(pending.pending_responses_count, 0) as pending_responses_count
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
+        LEFT JOIN LATERAL (
+            SELECT json_agg(
+                json_build_object(
+                    'id', r.id,
+                    'role', r.role,
+                    'user', json_build_object(
+                        'id', ru.id,
+                        'steamId', ru.steam_id,
+                        'steamNickname', ru.steam_nickname,
+                        'steamAvatar', ru.steam_avatar,
+                        'displayName', ru.display_name
+                    )
+                ) ORDER BY r.created_at ASC
+            ) as accepted_players
+            FROM lfg_responses r
+            JOIN users ru ON r.user_id = ru.id
+            WHERE r.post_id = l.id AND r.status = 'accepted'
+        ) accepted ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::int as pending_responses_count
+            FROM lfg_responses r
+            WHERE r.post_id = l.id AND r.status = 'pending'
+        ) pending ON true
         WHERE l.status = 'active'
         ORDER BY l.created_at DESC
     `);
@@ -108,9 +133,28 @@ async function getCompletedLfgPosts() {
                json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname, 
                                  'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 
                                  'region', u.region, 'role', u.role) as author,
+               COALESCE(accepted.accepted_players, '[]'::json) as accepted_players,
                l.review
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
+        LEFT JOIN LATERAL (
+            SELECT json_agg(
+                json_build_object(
+                    'id', r.id,
+                    'role', r.role,
+                    'user', json_build_object(
+                        'id', ru.id,
+                        'steamId', ru.steam_id,
+                        'steamNickname', ru.steam_nickname,
+                        'steamAvatar', ru.steam_avatar,
+                        'displayName', ru.display_name
+                    )
+                ) ORDER BY r.created_at ASC
+            ) as accepted_players
+            FROM lfg_responses r
+            JOIN users ru ON r.user_id = ru.id
+            WHERE r.post_id = l.id AND r.status = 'accepted'
+        ) accepted ON true
         WHERE l.status = 'completed'
         ORDER BY l.completed_at DESC
     `);
@@ -134,14 +178,25 @@ async function createLfgPost(postData) {
 }
 
 async function addResponseToLfg(postId, userId, role, message) {
-    const checkRes = await query('SELECT * FROM lfg_responses WHERE post_id = $1 AND user_id = $2 AND status = $3', 
-        [postId, userId, 'pending']);
+    const checkRes = await query('SELECT * FROM lfg_responses WHERE post_id = $1 AND user_id = $2 AND status IN ($3, $4)',
+        [postId, userId, 'pending', 'accepted']);
     if (checkRes.rows.length > 0) throw new Error('Вы уже откликались на эту анкету');
     
-    const postRes = await query('SELECT author_id, players_needed FROM lfg_posts WHERE id = $1 AND status = $2', 
+    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id = $1 AND status = $2',
         [postId, 'active']);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     
+    if (postRes.rows[0].author_id === userId) throw new Error('Нельзя откликнуться на свою анкету');
+
+    const rolesNeeded = postRes.rows[0].roles_needed || {};
+    if (!rolesNeeded[role]) throw new Error('Эта роль уже занята или не требуется');
+
+    const acceptedCount = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND status = $2',
+        [postId, 'accepted']);
+    if (parseInt(acceptedCount.rows[0].count, 10) >= postRes.rows[0].players_needed) {
+        throw new Error('В этой анкете уже набраны все игроки');
+    }
+
     const res = await query(`
         INSERT INTO lfg_responses (id, post_id, user_id, role, message, status, created_at)
         VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
@@ -165,17 +220,27 @@ async function getLfgResponses(postId) {
 }
 
 async function acceptResponse(postId, responseId, authorId) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
+    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id = $1 AND status = $2', [postId, 'active']);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
     
-    const responseRes = await query('SELECT role FROM lfg_responses WHERE id = $1', [responseId]);
+    const responseRes = await query('SELECT role FROM lfg_responses WHERE id = $1 AND post_id = $2 AND status = $3', [responseId, postId, 'pending']);
     if (responseRes.rows.length === 0) throw new Error('Отклик не найден');
     const role = responseRes.rows[0].role;
-    
+
+    const rolesNeeded = postRes.rows[0].roles_needed || {};
+    if (!rolesNeeded[role]) throw new Error('Эта роль уже занята');
+
+    const acceptedCount = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND status = $2',
+        [postId, 'accepted']);
+    if (parseInt(acceptedCount.rows[0].count, 10) >= postRes.rows[0].players_needed) {
+        throw new Error('Все места уже заняты');
+    }
+
     await query('UPDATE lfg_responses SET status = $1 WHERE post_id = $2 AND role = $3 AND status = $4', 
         ['rejected', postId, role, 'pending']);
     await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['accepted', responseId]);
+    await query(`UPDATE lfg_posts SET roles_needed = jsonb_set(roles_needed, $1, 'false'::jsonb) WHERE id = $2`, [`{${role}}`, postId]);
     
     return true;
 }
@@ -212,7 +277,11 @@ async function addReviewToLfg(postId, authorId, rating, comment) {
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
     
-    const review = { rating, comment, createdAt: new Date().toISOString() };
+    const normalizedRating = Math.max(1, Math.min(5, parseInt(rating, 10) || 0));
+    const normalizedComment = String(comment || '').trim().slice(0, 200);
+    if (!normalizedRating || !normalizedComment) throw new Error('Rating and comment required');
+
+    const review = { rating: normalizedRating, comment: normalizedComment, createdAt: new Date().toISOString() };
     await query('UPDATE lfg_posts SET review = $1 WHERE id = $2', [JSON.stringify(review), postId]);
     return true;
 }
@@ -685,6 +754,27 @@ app.post('/api/lfg', async (req, res) => {
         if (!title || !region || !myRole) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
+
+        const allowedRoles = ['IGL', 'AWP', 'ENTRY', 'RIFLER', 'LURKER'];
+        const neededCount = Math.max(1, Math.min(4, parseInt(playersNeeded, 10) || 1));
+        if (!allowedRoles.includes(myRole)) {
+            return res.status(400).json({ error: 'Invalid role' });
+        }
+
+        const selectedRoles = Object.entries(rolesNeeded || {})
+            .filter(([, selected]) => selected)
+            .map(([role]) => role);
+        if (selectedRoles.length !== neededCount) {
+            return res.status(400).json({ error: `Выберите ровно ${neededCount} ролей для поиска` });
+        }
+        if (selectedRoles.includes(myRole)) {
+            return res.status(400).json({ error: 'Ваша роль уже занята вами' });
+        }
+        if (selectedRoles.some(role => !allowedRoles.includes(role))) {
+            return res.status(400).json({ error: 'Invalid roles' });
+        }
+
+        const normalizedRolesNeeded = Object.fromEntries(allowedRoles.map(role => [role, selectedRoles.includes(role)]));
         
         const newPost = {
             id: `lfg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
@@ -695,8 +785,8 @@ app.post('/api/lfg', async (req, res) => {
             scheduleType: scheduleType || 'daily',
             schedule: schedule || '',
             weekSchedule: weekSchedule || {},
-            playersNeeded: playersNeeded || 1,
-            rolesNeeded: rolesNeeded || { IGL: false, AWP: false, ENTRY: false, RIFLER: false, LURKER: false },
+            playersNeeded: neededCount,
+            rolesNeeded: normalizedRolesNeeded,
             minFaceitLevel: minFaceitLevel || 1,
             minPremierRank: minPremierRank || 0,
             description: description || '',

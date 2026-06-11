@@ -584,6 +584,329 @@
         }
 
         // ============ ТУРНИРЫ ============
+        const LFG_ROLES = ['IGL', 'AWP', 'ENTRY', 'RIFLER', 'LURKER'];
+        const WEEKDAY_LABELS = {
+            monday: 'Понедельник',
+            tuesday: 'Вторник',
+            wednesday: 'Среда',
+            thursday: 'Четверг',
+            friday: 'Пятница',
+            saturday: 'Суббота',
+            sunday: 'Воскресенье'
+        };
+
+        function getAcceptedPlayers(post) {
+            return post.acceptedPlayers || post.accepted_players || [];
+        }
+
+        function getAvailableRoles(post) {
+            const rolesNeeded = post.rolesNeeded || {};
+            return LFG_ROLES.filter(role => rolesNeeded[role]);
+        }
+
+        function formatLfgSchedule(post) {
+            if (post.scheduleType !== 'weekly') return escapeHtml(post.schedule || 'По договоренности');
+            const week = typeof post.weekSchedule === 'string' ? safeJsonParse(post.weekSchedule, {}) : (post.weekSchedule || {});
+            const filled = Object.entries(WEEKDAY_LABELS)
+                .map(([day, label]) => week[day] ? `${label}: ${escapeHtml(week[day])}` : '')
+                .filter(Boolean);
+            return filled.length ? filled.join('<br>') : 'По дням недели, время не указано';
+        }
+
+        function safeJsonParse(value, fallback) {
+            try { return JSON.parse(value); } catch(e) { return fallback; }
+        }
+
+        function renderTeamSlots(post) {
+            const acceptedPlayers = getAcceptedPlayers(post);
+            const slots = [{
+                role: post.myRole,
+                user: post.author,
+                author: true
+            }, ...acceptedPlayers.map(player => ({
+                role: player.role,
+                user: player.user
+            }))];
+            const emptyRoles = getAvailableRoles(post);
+            while (slots.length < (post.playersNeeded || 1) + 1) {
+                slots.push({ role: emptyRoles.shift() || 'ROLE', user: null });
+            }
+            return `<div style="display: grid; gap: 8px; margin: 14px 0;">
+                ${slots.map(slot => slot.user ? `
+                    <div class="team-slot filled" title="${slot.author ? 'Создатель анкеты' : 'Принятый игрок'}">
+                        <img src="${slot.user.steamAvatar || ''}" style="width: 30px; height: 30px; border-radius: 50%; object-fit: cover;">
+                        <span class="role-badge role-${slot.role}">${slot.role}</span>
+                        <strong style="font-size: 13px;">${escapeHtml(slot.user.displayName || slot.user.steamNickname || 'Игрок')}</strong>
+                    </div>
+                ` : `
+                    <div class="team-slot empty">
+                        <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.08); display: grid; place-items: center;">+</div>
+                        <span class="role-badge role-${slot.role}">${slot.role}</span>
+                        <span class="text-gray" style="font-size: 13px;">Свободное место</span>
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        function renderReview(post) {
+            if (!post.review) return '';
+            const review = typeof post.review === 'string' ? safeJsonParse(post.review, null) : post.review;
+            if (!review) return '';
+            return `<div style="margin-top: 12px; padding: 12px; background: rgba(255,215,0,0.1); border-radius: 12px;">
+                <div class="stars">${[1,2,3,4,5].map(star => `<span class="star ${star <= review.rating ? 'active' : ''}">★</span>`).join('')}</div>
+                <p class="text-gray" style="font-size: 12px; margin-top: 6px;">${escapeHtml(review.comment)}</p>
+            </div>`;
+        }
+
+        async function renderLfg() {
+            if (isLoadingLfg) return;
+            isLoadingLfg = true;
+            showLoading();
+
+            try {
+                const [activeRes, completedRes] = await Promise.all([api.get('/lfg'), api.get('/lfg/completed')]);
+                const posts = activeRes.data.data || [];
+                const completedPosts = completedRes.data.data || [];
+                postsCache = posts;
+
+                const postsHtml = posts.map(post => {
+                    const isAuthor = currentUser?.id === post.authorId;
+                    const availableRoles = getAvailableRoles(post);
+                    const acceptedCount = getAcceptedPlayers(post).length;
+                    const pendingCount = post.pendingResponsesCount || 0;
+                    const isFull = acceptedCount >= (post.playersNeeded || 1);
+
+                    let responsesHtml = '';
+                    if (isAuthor && responsesCache[post.id]?.length) {
+                        responsesHtml = `<div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                            <h4 class="text-green" style="margin-bottom: 10px;">Отклики (${responsesCache[post.id].length})</h4>
+                            ${responsesCache[post.id].map(response => `<div class="response-card" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;" onclick="navigate('profile', { id: '${response.user?.steamId}' })">
+                                    <img src="${response.user?.steamAvatar || ''}" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover;">
+                                    <div>
+                                        <strong>${escapeHtml(response.user?.displayName || response.user?.steamNickname)}</strong>
+                                        <p class="text-gray" style="font-size: 11px;">Хочет роль <span class="role-badge role-${response.role}">${response.role}</span></p>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <button class="btn btn-outline" style="padding: 6px 10px; font-size: 12px;" onclick="navigate('chat', { id: '${response.user?.id}' })">Написать</button>
+                                    <button class="btn btn-primary" style="padding: 6px 10px; font-size: 12px;" onclick="acceptResponse('${post.id}', '${response.id}')">Принять</button>
+                                    <button class="btn" style="background: #f44336; padding: 6px 10px; font-size: 12px;" onclick="rejectResponse('${post.id}', '${response.id}')">Отклонить</button>
+                                </div>
+                            </div>`).join('')}
+                        </div>`;
+                    }
+
+                    return `<div class="lfg-card">
+                        <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 14px;">
+                            <div style="display: flex; gap: 12px; align-items: center; cursor: pointer;" onclick="navigate('profile', { id: '${post.author?.steamId}' })">
+                                <img src="${post.author?.steamAvatar || ''}" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--primary); object-fit: cover;">
+                                <div><h3>${escapeHtml(post.title)}</h3><p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p></div>
+                            </div>
+                            <div class="status-badge status-upcoming">${acceptedCount}/${post.playersNeeded || 1} найдено</div>
+                        </div>
+                        <div class="flex" style="gap: 10px; margin-bottom: 12px; flex-wrap: wrap; font-size: 12px;">
+                            <span>${post.region === 'RU' ? '🇷🇺 Россия' : '🌍 Другой регион'}</span>
+                            <span>FaceIt ${post.minFaceitLevel || 1}+</span>
+                            <span>Premier ${post.minPremierRank ? `${post.minPremierRank}+` : 'не важен'}</span>
+                            <span>${post.language === 'ru' ? '🇷🇺 Русский' : '🇬🇧 English'}</span>
+                        </div>
+                        <div class="card" style="padding: 12px; margin-bottom: 12px;">
+                            <strong style="font-size: 13px;">Состав</strong>
+                            ${renderTeamSlots(post)}
+                        </div>
+                        <p class="text-gray" style="font-size: 12px; margin-bottom: 10px;">🕒 ${formatLfgSchedule(post)}</p>
+                        ${post.description ? `<p class="text-gray" style="font-size: 13px; margin-bottom: 12px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">${escapeHtml(post.description)}</p>` : ''}
+                        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+                            ${!isAuthor && currentUser && availableRoles.length > 0 ? `<button class="btn btn-primary" style="flex: 1;" onclick="showRespondModal('${post.id}', ${JSON.stringify(availableRoles)})">Откликнуться</button>` : ''}
+                            ${!isAuthor && currentUser && availableRoles.length === 0 ? `<button class="btn" style="flex: 1; background: #555;" disabled>Все роли заняты</button>` : ''}
+                            ${!currentUser ? `<button class="btn btn-primary" style="flex: 1;" onclick="showToast('Войдите через Steam', 'info')">Войдите, чтобы откликнуться</button>` : ''}
+                            ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="loadResponses('${post.id}')">Отклики (${responsesCache[post.id]?.length ?? pendingCount})</button>` : ''}
+                            ${isAuthor && isFull ? `<button class="btn btn-primary" style="flex: 1;" onclick="showCompleteLfgModal('${post.id}')">Завершить поиск</button>` : ''}
+                            ${isAuthor ? `<button class="btn btn-outline" style="flex: 1;" onclick="deleteLfgPost('${post.id}')">Удалить</button>` : ''}
+                        </div>
+                        ${responsesHtml}
+                    </div>`;
+                }).join('');
+
+                const completedHtml = completedPosts.map(post => `<div class="lfg-card" style="opacity: 0.95;">
+                    <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 15px; cursor: pointer;" onclick="navigate('profile', { id: '${post.author?.steamId}' })">
+                        <img src="${post.author?.steamAvatar || ''}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;">
+                        <div><h3>${escapeHtml(post.title)}</h3><p class="text-gray" style="font-size: 11px;">${escapeHtml(post.author?.displayName || post.author?.steamNickname)}</p></div>
+                    </div>
+                    <span class="status-badge status-completed">Команда собрана</span>
+                    ${renderTeamSlots(post)}
+                    ${renderReview(post)}
+                </div>`).join('');
+
+                document.getElementById('app').innerHTML = `<div class="container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;">
+                        <div><h1>Поиск команды</h1><p class="text-gray">Анкеты с откликами, ролями и подтвержденным составом</p></div>
+                        ${currentUser ? `<button class="btn btn-primary" onclick="openLfgCreate()">+ Создать анкету</button>` : ''}
+                    </div>
+                    <h2 class="text-green" style="margin-bottom: 20px;">Активные анкеты</h2>
+                    ${posts.length === 0 ? '<div class="card text-center">Нет активных анкет</div>' : `<div class="lfg-grid">${postsHtml}</div>`}
+                    <div style="margin-top: 42px;">
+                        <h2 class="text-green" style="margin-bottom: 20px;">Успешные анкеты</h2>
+                        ${completedPosts.length === 0 ? '<div class="card text-center">Пока нет успешно собранных команд</div>' : `<div class="lfg-grid">${completedHtml}</div>`}
+                    </div>
+                </div>`;
+                attachNavigationEvents();
+            } catch (error) {
+                console.error('LFG error:', error);
+                showError('Не удалось загрузить анкеты. Попробуйте обновить страницу.');
+            } finally {
+                isLoadingLfg = false;
+            }
+        }
+
+        function openLfgCreate() {
+            if (localStorage.getItem('lfgRulesAccepted') === 'true') {
+                navigate('lfg-create');
+                return;
+            }
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '10001';
+            modal.innerHTML = `<div class="modal-content" style="max-width: 560px;">
+                <div class="modal-header"><h2 class="text-green">Правила создания анкеты</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button></div>
+                <div class="text-gray" style="display: grid; gap: 10px; font-size: 14px;">
+                    <p>Создавайте анкету только если реально готовы играть в указанное время.</p>
+                    <p>Не принимайте игроков без общения, если сомневаетесь в роли, расписании или целях.</p>
+                    <p>После набора состава завершите поиск, чтобы анкета ушла в успешные и не собирала лишние отклики.</p>
+                    <p>Отзывы должны быть честными и без оскорблений. Максимум 200 символов.</p>
+                </div>
+                <label style="display: flex; gap: 8px; align-items: center; margin-top: 18px; font-size: 13px;"><input type="checkbox" id="hide-lfg-rules"> Больше не показывать</label>
+                <div class="flex" style="justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn" style="background: #555;" onclick="this.closest('.modal-overlay').remove(); navigate('lfg')">Отмена</button>
+                    <button class="btn btn-primary" id="accept-lfg-rules">Ознакомился</button>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+            modal.querySelector('#accept-lfg-rules').onclick = () => {
+                if (modal.querySelector('#hide-lfg-rules').checked) localStorage.setItem('lfgRulesAccepted', 'true');
+                sessionStorage.setItem('lfgRulesAcceptedOnce', 'true');
+                modal.remove();
+                navigate('lfg-create');
+            };
+        }
+
+        function renderLfgCreate() {
+            if (localStorage.getItem('lfgRulesAccepted') !== 'true' && sessionStorage.getItem('lfgRulesAcceptedOnce') !== 'true') {
+                openLfgCreate();
+                return;
+            }
+
+            const roleOptions = LFG_ROLES.map(role => `<option value="${role}">${role}</option>`).join('');
+            const html = `<div class="container">
+                <div class="card" style="max-width: 820px; margin: 0 auto;">
+                    <h2 class="text-green" style="margin-bottom: 20px;">Создание анкеты</h2>
+                    <form id="create-lfg-form">
+                        <div class="form-group"><label>Название анкеты *</label><input type="text" class="form-input" id="lfg-title" required maxlength="80" placeholder="Например: Собираю стак на вечер"></div>
+                        <div class="grid-2">
+                            <div class="form-group"><label>Моя роль *</label><select class="form-input" id="lfg-myrole">${roleOptions}</select></div>
+                            <div class="form-group"><label>Сколько игроков нужно найти?</label><select class="form-input" id="lfg-players"><option value="1">1 игрок</option><option value="2">2 игрока</option><option value="3">3 игрока</option><option value="4">4 игрока</option></select></div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group"><label>Мин. уровень FaceIt</label><select class="form-input" id="lfg-faceit">${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n} уровень</option>`).join('')}</select></div>
+                            <div class="form-group"><label>Мин. ранг Premier</label><select class="form-input" id="lfg-premier"><option value="0">Не важно</option><option value="5000">5000+</option><option value="10000">10000+</option><option value="15000">15000+</option><option value="20000">20000+</option><option value="25000">25000+</option><option value="30000">30000+</option></select></div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group"><label>Регион</label><select class="form-input" id="lfg-region"><option value="RU">Россия</option><option value="EU">Европа</option><option value="NA">Северная Америка</option><option value="ASIA">Азия</option></select></div>
+                            <div class="form-group"><label>Язык</label><select class="form-input" id="lfg-language"><option value="ru">Русский</option><option value="en">English</option></select></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Время игры *</label>
+                            <div class="flex" style="gap: 10px; margin-bottom: 12px;">
+                                <button type="button" class="btn btn-primary schedule-type-btn" data-type="daily">Общее время</button>
+                                <button type="button" class="btn btn-outline schedule-type-btn" data-type="weekly">По дням недели</button>
+                            </div>
+                            <div id="daily-schedule"><input type="text" class="form-input" id="lfg-schedule" maxlength="50" placeholder="Например: вечером после 20:00"><div class="char-counter">0/50</div></div>
+                            <div id="weekly-schedule" style="display: none;" class="weekday-schedule">
+                                ${Object.entries(WEEKDAY_LABELS).map(([day, label]) => `<div class="weekday-item"><div class="weekday-name">${label}</div><div style="flex:1;"><input type="text" class="weekday-input" data-day="${day}" maxlength="50" placeholder="Например: 20:00-23:00"><div class="char-counter">0/50</div></div></div>`).join('')}
+                            </div>
+                        </div>
+                        <div class="form-group"><label>Какие роли нужны? *</label><p class="text-gray" style="font-size: 12px; margin-bottom: 8px;">Выберите ровно столько ролей, сколько игроков ищете. Ваша роль уже занята вами.</p><div class="flex" style="gap: 10px; flex-wrap: wrap;" id="roles-checkboxes">${LFG_ROLES.map(role => `<label class="role-choice" style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" value="${role}"> <span class="role-badge role-${role}">${role}</span></label>`).join('')}</div><p id="roles-hint" class="text-gray" style="font-size: 12px; margin-top: 8px;"></p></div>
+                        <div class="form-group"><label>Описание</label><textarea class="form-input" id="lfg-description" rows="3" maxlength="500" placeholder="Цели, требования, стиль игры..."></textarea></div>
+                        <div class="flex" style="justify-content: flex-end; gap: 12px; margin-top: 20px;"><button type="button" class="btn" style="background: #555;" onclick="navigate('lfg')">Отмена</button><button type="submit" class="btn btn-primary">Создать анкету</button></div>
+                    </form>
+                </div>
+            </div>`;
+            document.getElementById('app').innerHTML = html;
+            attachNavigationEvents();
+
+            const updateRoleState = () => {
+                const myRole = document.getElementById('lfg-myrole').value;
+                const needed = parseInt(document.getElementById('lfg-players').value, 10);
+                const selected = [...document.querySelectorAll('#roles-checkboxes input:checked')];
+                document.querySelectorAll('#roles-checkboxes input').forEach(input => {
+                    const isOwnRole = input.value === myRole;
+                    input.disabled = isOwnRole || (!input.checked && selected.length >= needed);
+                    if (isOwnRole) input.checked = false;
+                });
+                document.getElementById('roles-hint').textContent = `Выбрано ${selected.filter(input => input.value !== myRole).length}/${needed}`;
+            };
+            document.getElementById('lfg-myrole').onchange = updateRoleState;
+            document.getElementById('lfg-players').onchange = updateRoleState;
+            document.querySelectorAll('#roles-checkboxes input').forEach(input => input.onchange = updateRoleState);
+            updateRoleState();
+
+            document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('btn-primary'));
+                    btn.classList.add('btn-primary');
+                    document.getElementById('daily-schedule').style.display = btn.dataset.type === 'daily' ? 'block' : 'none';
+                    document.getElementById('weekly-schedule').style.display = btn.dataset.type === 'weekly' ? 'block' : 'none';
+                };
+            });
+            document.querySelectorAll('#lfg-schedule, .weekday-input').forEach(input => {
+                input.addEventListener('input', function() {
+                    const counter = this.nextElementSibling;
+                    if (counter) counter.textContent = `${this.value.length}/50`;
+                });
+            });
+
+            document.getElementById('create-lfg-form').onsubmit = async (event) => {
+                event.preventDefault();
+                const scheduleType = document.querySelector('.schedule-type-btn.btn-primary').dataset.type;
+                let schedule = document.getElementById('lfg-schedule').value.trim();
+                let weekSchedule = null;
+                if (scheduleType === 'weekly') {
+                    weekSchedule = {};
+                    document.querySelectorAll('.weekday-input').forEach(input => { weekSchedule[input.dataset.day] = input.value.trim(); });
+                    schedule = Object.values(weekSchedule).some(Boolean) ? JSON.stringify(weekSchedule) : '';
+                }
+                if (!schedule) { showToast('Укажите время игры', 'error'); return; }
+
+                const playersNeeded = parseInt(document.getElementById('lfg-players').value, 10);
+                const rolesNeeded = {};
+                document.querySelectorAll('#roles-checkboxes input').forEach(input => { rolesNeeded[input.value] = input.checked; });
+                const selectedCount = Object.values(rolesNeeded).filter(Boolean).length;
+                if (selectedCount !== playersNeeded) { showToast(`Выберите ровно ${playersNeeded} ролей`, 'error'); return; }
+
+                try {
+                    await api.post('/lfg', {
+                        title: document.getElementById('lfg-title').value.trim(),
+                        region: document.getElementById('lfg-region').value,
+                        myRole: document.getElementById('lfg-myrole').value,
+                        playersNeeded,
+                        schedule,
+                        scheduleType,
+                        weekSchedule,
+                        description: document.getElementById('lfg-description').value.trim(),
+                        rolesNeeded,
+                        minFaceitLevel: parseInt(document.getElementById('lfg-faceit').value, 10),
+                        minPremierRank: parseInt(document.getElementById('lfg-premier').value, 10),
+                        language: document.getElementById('lfg-language').value
+                    });
+                    showToast('Анкета создана', 'success');
+                    navigate('lfg');
+                } catch (err) {
+                    showToast(err.response?.data?.error || 'Ошибка при создании анкеты', 'error');
+                }
+            };
+        }
+
         async function renderTournaments() {
             if (isLoadingTournaments) return;
             isLoadingTournaments = true;
