@@ -86,8 +86,12 @@
 
     <script>
         // ==================== КОНФИГУРАЦИЯ ====================
+        const API_BASE_URL = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+            ? '/api'
+            : 'https://barside-api.onrender.com/api';
+
         const api = axios.create({
-            baseURL: 'https://barside-api.onrender.com/api',
+            baseURL: API_BASE_URL,
             withCredentials: true,
             headers: { 'Content-Type': 'application/json' }
         });
@@ -173,9 +177,18 @@
             if (isLoading) return;
             currentPage = page;
             let url = `/${page}`;
-            if (page === 'profile' && params.id) url = `/profile/${params.id}`;
-            if (page === 'chat' && params.id) url = `/chat/${params.id}`;
-            if (page === 'lfg-create') url = `/lfg/create`;
+            if (page === 'profile' && params.id) {
+                currentPage = `profile/${params.id}`;
+                url = `/profile/${params.id}`;
+            }
+            if (page === 'chat' && params.id) {
+                currentPage = `chat/${params.id}`;
+                url = `/chat/${params.id}`;
+            }
+            if (page === 'lfg-create') {
+                currentPage = 'lfg-create';
+                url = `/lfg/create`;
+            }
             window.history.pushState({}, '', url);
             renderPage();
         }
@@ -284,12 +297,12 @@
             try {
                 if (currentPage === 'home') await renderHome();
                 else if (currentPage === 'lfg') await renderLfg();
-                else if (currentPage === 'lfg-create' && currentUser) renderLfgCreate();
+                else if ((currentPage === 'lfg-create' || currentPage === 'lfg/create') && currentUser) renderLfgCreate();
                 else if (currentPage === 'tournaments') await renderTournaments();
                 else if (currentPage === 'friends') await renderFriends();
                 else if (currentPage === 'admin' && currentUser?.isAdmin) await renderAdmin();
-                else if (currentPage.startsWith('profile/')) await renderProfile(currentPage.split('/profile/')[1]);
-                else if (currentPage.startsWith('chat/')) await renderChat(currentPage.split('/chat/')[1]);
+                else if (currentPage.startsWith('profile/')) await renderProfile(currentPage.split('/')[1]);
+                else if (currentPage.startsWith('chat/')) await renderChat(currentPage.split('/')[1]);
                 else await renderHome();
             } catch (error) {
                 console.error('Render error:', error);
@@ -1102,7 +1115,7 @@
                         clearInterval(interval);
                         showToast(`✅ Баланс пополнен на ${res.data.amount} ₽!`, 'success');
                         loadBalance();
-                        if (currentPage === 'profile' && currentUser) {
+                        if (currentPage.startsWith('profile/') && currentUser) {
                             renderProfile(currentUser.steamId);
                         }
                     } else if (res.data.status === 'canceled') {

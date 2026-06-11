@@ -251,6 +251,17 @@ async function getFriendRequests(toUserId) {
     return res.rows.map(row => toCamelCase(row));
 }
 
+async function getSentFriendRequests(fromUserId) {
+    const res = await query(`
+        SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar
+        FROM friend_requests fr
+        JOIN users u ON fr.to_id = u.id
+        WHERE fr.from_id = $1 AND fr.status = 'pending'
+        ORDER BY fr.created_at DESC
+    `, [fromUserId]);
+    return res.rows.map(row => toCamelCase(row));
+}
+
 async function acceptFriendRequest(requestId, toUserId) {
     const client = await pool.connect();
     try {
@@ -272,6 +283,11 @@ async function acceptFriendRequest(requestId, toUserId) {
 
 async function declineFriendRequest(requestId, toUserId) {
     const res = await query(`UPDATE friend_requests SET status = 'declined' WHERE id = $1 AND to_id = $2 AND status = 'pending'`, [requestId, toUserId]);
+    return res.rowCount > 0;
+}
+
+async function cancelFriendRequest(requestId, fromUserId) {
+    const res = await query(`DELETE FROM friend_requests WHERE id = $1 AND from_id = $2 AND status = 'pending'`, [requestId, fromUserId]);
     return res.rowCount > 0;
 }
 
@@ -748,6 +764,23 @@ app.get('/api/lfg/:postId/responses', async (req, res) => {
     }
 });
 
+app.get('/api/lfg/responses/unread', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const unreadRes = await query(`
+            SELECT COUNT(*)
+            FROM lfg_responses r
+            JOIN lfg_posts p ON r.post_id = p.id
+            WHERE p.author_id = $1 AND p.status = 'active' AND r.status = 'pending'
+        `, [payload.userId]);
+        res.json({ count: parseInt(unreadRes.rows[0].count, 10) || 0 });
+    } catch (err) {
+        res.json({ count: 0 });
+    }
+});
+
 app.post('/api/lfg/:postId/responses/:responseId/accept', async (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -853,6 +886,16 @@ app.get('/api/friends/requests', async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
+app.get('/api/friends/requests/sent', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const requests = await getSentFriendRequests(payload.userId);
+        res.json({ data: requests });
+    } catch (err) { res.status(500).json({ error: 'Server error' }); }
+});
+
 app.post('/api/friends/request/:userId', async (req, res) => {
     const token = req.cookies.auth_token;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -890,6 +933,17 @@ app.post('/api/friends/request/:requestId/decline', async (req, res) => {
     try {
         const payload = JSON.parse(Buffer.from(token, 'base64').toString());
         await declineFriendRequest(req.params.requestId, payload.userId);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.delete('/api/friends/request/:requestId', async (req, res) => {
+    const token = req.cookies.auth_token;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString());
+        const deleted = await cancelFriendRequest(req.params.requestId, payload.userId);
+        if (!deleted) return res.status(404).json({ error: 'Request not found' });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
@@ -1027,9 +1081,6 @@ app.get('/api/admin/search', async (req, res) => {
 
 // ============= HEALTH CHECK =============
 app.get('/healthz', (req, res) => { res.status(200).json({ status: 'ok' }); });
-
-// ============= СТАТИКА =============
-app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
 
 // ============= ПЛАТЕЖИ ЮKASSA =============
 
@@ -1203,6 +1254,9 @@ app.get('/api/payments/history', async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
+// ============= СТАТИКА =============
+app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public/index.html')); });
 
 // ============= ЗАПУСК =============
 async function startServer() {
