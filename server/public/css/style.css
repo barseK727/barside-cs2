@@ -862,3 +862,5 @@ textarea.form-input {
 .message-new {
     animation: messageSlide 0.3s ease-out;
 }
+
+.profile-btn { text-decoration: none; }

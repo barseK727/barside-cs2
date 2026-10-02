@@ -1,27 +1,73 @@
-# Локальные файлы окружения
+# ===== Локальные файлы окружения =====
 .env
+.env.local
+.env.*.local
 server/.env
 
-# Node modules (НЕ КОММИТИМ!)
+# ===== Node modules (НЕ КОММИТИМ!) =====
 node_modules/
 server/node_modules/
+**/node_modules/
 
-# Логи
+# ===== Логи =====
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Системные файлы
+# ===== Системные файлы =====
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# IDE
+# ===== IDE / Редакторы =====
 .vscode/
 .idea/
 *.swp
 *.swo
+*.swn
+*.iml
+*.code-workspace
 
-# Временные файлы
+# ===== Временные файлы =====
 *.tmp
 *.temp
+*.bak
+*.old
+*.orig
+
+# ===== Кэш =====
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.npm/
+.eslintcache
+.stylelintcache
+
+# ===== Тестовые / покрытие =====
+coverage/
+.nyc_output/
+*.lcov
+
+# ===== Сборка (если появится) =====
+dist/
+build/
+out/
+
+# ===== Render / Vercel / Heroku =====
+.render/
+.vercel/
+.heroku/
+
+# ===== Прочее =====
+*.pid
+*.seed
+*.pid.lock
