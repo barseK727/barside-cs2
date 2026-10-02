@@ -16,9 +16,9 @@ try {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ================== ПРОВЕРКА ENV ==================
+// ================== ENV CHECK ==================
 if (!process.env.STEAM_API_KEY) {
-    console.error('❌ STEAM_API_KEY не задан в .env');
+    console.error('❌ STEAM_API_KEY не задан');
     process.exit(1);
 }
 if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
@@ -35,14 +35,12 @@ console.log('🌐 FRONTEND_URL:', FRONTEND_URL);
 // ================== POSTGRES ==================
 let pool;
 if (process.env.DATABASE_URL) {
-    // Render / облако: используем connection string
     pool = new Pool({
         connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false }
     });
-    console.log('🌐 Using DATABASE_URL for Postgres');
+    console.log('🌐 Using DATABASE_URL');
 } else {
-    // Локально: используем отдельные переменные
     pool = new Pool({
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -54,7 +52,6 @@ if (process.env.DATABASE_URL) {
     console.log('🏠 Using local Postgres');
 }
 
-// ⬇️⬇️⬇️ УБЕДИСЬ, ЧТО ЭТА ФУНКЦИЯ ЕСТЬ ⬇️⬇️⬇️
 async function query(text, params) {
     const res = await pool.query(text, params);
     return res;
@@ -77,7 +74,44 @@ if (process.env.YKASSA_SHOP_ID && process.env.YKASSA_SECRET_KEY && YooKassa) {
         console.warn('⚠️ ЮKassa init error:', e.message);
     }
 } else {
-    console.log('⚠️ ЮKassa not configured - payments disabled');
+    console.log('⚠️ ЮKassa not configured');
+}
+
+// ================== SSE ==================
+const sseClients = new Map();
+
+app.get('/api/events', (req, res) => {
+    const payload = getAuthPayload(req);
+    if (!payload) return res.status(401).end();
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const heartbeat = setInterval(() => {
+        try { res.write(': ping\n\n'); } catch (e) {}
+    }, 25000);
+
+    const userId = payload.userId;
+    if (!sseClients.has(userId)) sseClients.set(userId, new Set());
+    sseClients.get(userId).add(res);
+
+    req.on('close', () => {
+        clearInterval(heartbeat);
+        const set = sseClients.get(userId);
+        if (set) { set.delete(res); if (set.size === 0) sseClients.delete(userId); }
+    });
+});
+
+function pushEvent(userId, type, data) {
+    const set = sseClients.get(userId);
+    if (!set || set.size === 0) return;
+    const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of set) {
+        try { client.write(message); } catch (e) {}
+    }
 }
 
 // ================== УТИЛИТЫ ==================
@@ -85,7 +119,7 @@ function toCamelCase(obj) {
     if (!obj || typeof obj !== 'object') return obj;
     const newObj = {};
     for (const [key, value] of Object.entries(obj)) {
-        const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        const camelKey = key.replace(/_([a-z])/g, (_, l) => l.toUpperCase());
         newObj[camelKey] = value;
     }
     return newObj;
@@ -104,20 +138,40 @@ function getRequestOrigin(req) {
     return `${protocol}://${req.get('host')}`;
 }
 
-// Возвращает payload из cookie или null
 function getAuthPayload(req) {
     const token = req.cookies.auth_token;
     if (!token) return null;
-    try {
-        return JSON.parse(Buffer.from(token, 'base64').toString());
-    } catch (e) {
-        return null;
-    }
+    try { return JSON.parse(Buffer.from(token, 'base64').toString()); }
+    catch (e) { return null; }
 }
 
-// Универсальный ответ админских роутов
-function adminError(res, code, message) {
-    return res.status(code).json({ error: message });
+function sanitizeString(str, max = 500) {
+    if (typeof str !== 'string') return '';
+    return str.trim().slice(0, max);
+}
+
+// ================== RATE LIMIT (in-memory) ==================
+const rateLimitBuckets = new Map();
+function rateLimit(key, limit, windowMs) {
+    const now = Date.now();
+    const bucket = rateLimitBuckets.get(key) || { count: 0, resetAt: now + windowMs };
+    if (now > bucket.resetAt) {
+        bucket.count = 0;
+        bucket.resetAt = now + windowMs;
+    }
+    bucket.count++;
+    rateLimitBuckets.set(key, bucket);
+    return bucket.count <= limit;
+}
+function rateLimitMiddleware(limit, windowMs) {
+    return (req, res, next) => {
+        const payload = getAuthPayload(req);
+        const key = payload ? `u:${payload.userId}` : `ip:${req.ip}`;
+        if (!rateLimit(key, limit, windowMs)) {
+            return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+        }
+        next();
+    };
 }
 
 // ================== USERS ==================
@@ -125,25 +179,17 @@ async function findUserBySteamId(steamId) {
     const res = await query('SELECT * FROM users WHERE steam_id = $1', [steamId]);
     return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
-
 async function findUserById(userId) {
     const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
     return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
-
-async function createUser(userData) {
-    const {
-        id, steam_id, steam_nickname, steam_avatar, display_name,
-        region, role, has_mic, bio, balance, is_admin, is_banned
-    } = userData;
+async function createUser(u) {
     const res = await query(`
         INSERT INTO users (id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-        RETURNING *
-    `, [id, steam_id, steam_nickname, steam_avatar, display_name, region, role, has_mic, bio, balance, is_admin, is_banned]);
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()) RETURNING *
+    `, [u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, u.region, u.role, u.has_mic, u.bio, u.balance, u.is_admin, u.is_banned]);
     return toCamelCase(res.rows[0]);
 }
-
 async function updateUser(steamId, updates) {
     const fields = [];
     const values = [];
@@ -158,16 +204,9 @@ async function updateUser(steamId, updates) {
     const res = await query(`UPDATE users SET ${fields.join(', ')} WHERE steam_id = $${i} RETURNING *`, values);
     return res.rows[0] ? toCamelCase(res.rows[0]) : null;
 }
-
 async function getAllUsers() {
     const res = await query('SELECT * FROM users ORDER BY created_at DESC');
-    return res.rows.map(row => {
-        try {
-            return toCamelCase(row);
-        } catch (e) {
-            return null;
-        }
-    }).filter(Boolean);
+    return res.rows.map(r => { try { return toCamelCase(r); } catch { return null; } }).filter(Boolean);
 }
 
 // ================== LFG ==================
@@ -182,32 +221,20 @@ async function getActiveLfgPosts() {
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
         LEFT JOIN LATERAL (
-            SELECT json_agg(
-                json_build_object(
-                    'id', r.id,
-                    'role', r.role,
-                    'user', json_build_object(
-                        'id', ru.id,
-                        'steamId', ru.steam_id,
-                        'steamNickname', ru.steam_nickname,
-                        'steamAvatar', ru.steam_avatar,
-                        'displayName', ru.display_name
-                    )
-                ) ORDER BY r.created_at ASC
-            ) as accepted_players
-            FROM lfg_responses r
-            JOIN users ru ON r.user_id = ru.id
+            SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
+                'user', json_build_object('id', ru.id, 'steamId', ru.steam_id,
+                    'steamNickname', ru.steam_nickname, 'steamAvatar', ru.steam_avatar,
+                    'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
+            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id
             WHERE r.post_id = l.id AND r.status = 'accepted'
         ) accepted ON true
         LEFT JOIN LATERAL (
-            SELECT COUNT(*)::int as pending_responses_count
-            FROM lfg_responses r
+            SELECT COUNT(*)::int as pending_responses_count FROM lfg_responses r
             WHERE r.post_id = l.id AND r.status = 'pending'
         ) pending ON true
-        WHERE l.status = 'active'
-        ORDER BY l.created_at DESC
+        WHERE l.status = 'active' ORDER BY l.created_at DESC
     `);
-    return res.rows.map(row => toCamelCase(row));
+    return res.rows.map(toCamelCase);
 }
 
 async function getCompletedLfgPosts() {
@@ -216,340 +243,257 @@ async function getCompletedLfgPosts() {
                json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
                                  'steamAvatar', u.steam_avatar, 'displayName', u.display_name,
                                  'region', u.region, 'role', u.role) as author,
-               COALESCE(accepted.accepted_players, '[]'::json) as accepted_players,
-               l.review
+               COALESCE(accepted.accepted_players, '[]'::json) as accepted_players, l.review
         FROM lfg_posts l
         JOIN users u ON l.author_id = u.id
         LEFT JOIN LATERAL (
-            SELECT json_agg(
-                json_build_object(
-                    'id', r.id,
-                    'role', r.role,
-                    'user', json_build_object(
-                        'id', ru.id,
-                        'steamId', ru.steam_id,
-                        'steamNickname', ru.steam_nickname,
-                        'steamAvatar', ru.steam_avatar,
-                        'displayName', ru.display_name
-                    )
-                ) ORDER BY r.created_at ASC
-            ) as accepted_players
-            FROM lfg_responses r
-            JOIN users ru ON r.user_id = ru.id
+            SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
+                'user', json_build_object('id', ru.id, 'steamId', ru.steam_id,
+                    'steamNickname', ru.steam_nickname, 'steamAvatar', ru.steam_avatar,
+                    'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
+            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id
             WHERE r.post_id = l.id AND r.status = 'accepted'
         ) accepted ON true
-        WHERE l.status = 'completed'
-        ORDER BY l.completed_at DESC
+        WHERE l.status = 'completed' ORDER BY l.completed_at DESC
     `);
-    return res.rows.map(row => toCamelCase(row));
+    return res.rows.map(toCamelCase);
 }
 
-async function createLfgPost(postData) {
-    const {
-        id, authorId, title, region, myRole, scheduleType, schedule, weekSchedule,
-        playersNeeded, rolesNeeded, minFaceitLevel, minPremierRank, description, language
-    } = postData;
-
+async function createLfgPost(p) {
     const res = await query(`
         INSERT INTO lfg_posts (id, author_id, title, region, my_role, schedule_type, schedule,
                                week_schedule, players_needed, roles_needed, min_faceit_level,
                                min_premier_rank, description, language, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'active', NOW())
-        RETURNING *
-    `, [id, authorId, title, region, myRole, scheduleType, schedule,
-        JSON.stringify(weekSchedule || {}), playersNeeded, JSON.stringify(rolesNeeded),
-        minFaceitLevel || 1, minPremierRank || 0, description || '', language || 'ru']);
-
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',NOW()) RETURNING *
+    `, [p.id, p.authorId, p.title, p.region, p.myRole, p.scheduleType, p.schedule,
+        JSON.stringify(p.weekSchedule || {}), p.playersNeeded, JSON.stringify(p.rolesNeeded),
+        p.minFaceitLevel || 1, p.minPremierRank || 0, p.description || '', p.language || 'ru']);
     return toCamelCase(res.rows[0]);
 }
 
 async function addResponseToLfg(postId, userId, role, message) {
-    const checkRes = await query(
-        'SELECT * FROM lfg_responses WHERE post_id = $1 AND user_id = $2 AND status IN ($3, $4)',
-        [postId, userId, 'pending', 'accepted']
-    );
-    if (checkRes.rows.length > 0) throw new Error('Вы уже откликались на эту анкету');
+    const dup = await query('SELECT 1 FROM lfg_responses WHERE post_id=$1 AND user_id=$2 AND status IN ($3,$4)',
+        [postId, userId, 'pending', 'accepted']);
+    if (dup.rows.length > 0) throw new Error('Вы уже откликались');
 
-    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id = $1 AND status = $2',
+    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id=$1 AND status=$2',
         [postId, 'active']);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
-    if (postRes.rows[0].author_id === userId) throw new Error('Нельзя откликнуться на свою анкету');
+    if (postRes.rows[0].author_id === userId) throw new Error('Нельзя на свою анкету');
 
     const rolesNeeded = safeJsonParse(postRes.rows[0].roles_needed, {});
-    if (!rolesNeeded[role]) throw new Error('Эта роль уже занята или не требуется');
+    if (!rolesNeeded[role]) throw new Error('Роль занята или не нужна');
 
-    const acceptedCount = await query(
-        'SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND status = $2',
-        [postId, 'accepted']
-    );
-    if (parseInt(acceptedCount.rows[0].count, 10) >= postRes.rows[0].players_needed) {
-        throw new Error('В этой анкете уже набраны все игроки');
-    }
+    const cnt = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id=$1 AND status=$2', [postId, 'accepted']);
+    if (parseInt(cnt.rows[0].count, 10) >= postRes.rows[0].players_needed) throw new Error('Все места заняты');
 
     const res = await query(`
         INSERT INTO lfg_responses (id, post_id, user_id, role, message, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-        RETURNING *
-    `, [`resp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`, postId, userId, role, message || '']);
-
+        VALUES ($1,$2,$3,$4,$5,'pending',NOW()) RETURNING *
+    `, [`resp_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, postId, userId, role, message || '']);
     return toCamelCase(res.rows[0]);
 }
 
 async function getLfgResponses(postId) {
     const res = await query(`
-        SELECT r.*,
-               json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
-                                 'steamAvatar', u.steam_avatar, 'displayName', u.display_name) as user
-        FROM lfg_responses r
-        JOIN users u ON r.user_id = u.id
-        WHERE r.post_id = $1 AND r.status = 'pending'
-        ORDER BY r.created_at ASC
+        SELECT r.*, json_build_object('id', u.id, 'steamId', u.steam_id,
+            'steamNickname', u.steam_nickname, 'steamAvatar', u.steam_avatar,
+            'displayName', u.display_name) as user
+        FROM lfg_responses r JOIN users u ON r.user_id = u.id
+        WHERE r.post_id=$1 AND r.status='pending' ORDER BY r.created_at ASC
     `, [postId]);
-    return res.rows.map(row => toCamelCase(row));
+    return res.rows.map(toCamelCase);
 }
 
 async function acceptResponse(postId, responseId, authorId) {
-    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id = $1 AND status = $2',
+    const postRes = await query('SELECT author_id, players_needed, roles_needed FROM lfg_posts WHERE id=$1 AND status=$2',
         [postId, 'active']);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
 
-    const responseRes = await query('SELECT role FROM lfg_responses WHERE id = $1 AND post_id = $2 AND status = $3',
+    const responseRes = await query('SELECT role FROM lfg_responses WHERE id=$1 AND post_id=$2 AND status=$3',
         [responseId, postId, 'pending']);
     if (responseRes.rows.length === 0) throw new Error('Отклик не найден');
     const role = responseRes.rows[0].role;
 
     const rolesNeeded = safeJsonParse(postRes.rows[0].roles_needed, {});
-    if (!rolesNeeded[role]) throw new Error('Эта роль уже занята');
+    if (!rolesNeeded[role]) throw new Error('Роль занята');
 
-    const acceptedCount = await query(
-        'SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND status = $2',
-        [postId, 'accepted']
-    );
-    if (parseInt(acceptedCount.rows[0].count, 10) >= postRes.rows[0].players_needed) {
-        throw new Error('Все места уже заняты');
-    }
+    const cnt = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id=$1 AND status=$2', [postId, 'accepted']);
+    if (parseInt(cnt.rows[0].count, 10) >= postRes.rows[0].players_needed) throw new Error('Все места заняты');
 
-    await query('UPDATE lfg_responses SET status = $1 WHERE post_id = $2 AND role = $3 AND status = $4',
+    await query('UPDATE lfg_responses SET status=$1 WHERE post_id=$2 AND role=$3 AND status=$4',
         ['rejected', postId, role, 'pending']);
-    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['accepted', responseId]);
-    await query(`UPDATE lfg_posts SET roles_needed = jsonb_set(roles_needed, $1, 'false'::jsonb) WHERE id = $2`,
+    await query('UPDATE lfg_responses SET status=$1 WHERE id=$2', ['accepted', responseId]);
+    await query(`UPDATE lfg_posts SET roles_needed = jsonb_set(roles_needed, $1, 'false'::jsonb) WHERE id=$2`,
         [`{${role}}`, postId]);
-
     return true;
 }
 
 async function rejectResponse(postId, responseId, authorId) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
+    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id=$1', [postId]);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
-
-    await query('UPDATE lfg_responses SET status = $1 WHERE id = $2', ['rejected', responseId]);
+    await query('UPDATE lfg_responses SET status=$1 WHERE id=$2', ['rejected', responseId]);
     return true;
 }
 
 async function completeLfgPost(postId, authorId) {
-    const postRes = await query('SELECT author_id, players_needed FROM lfg_posts WHERE id = $1 AND status = $2',
+    const postRes = await query('SELECT author_id, players_needed FROM lfg_posts WHERE id=$1 AND status=$2',
         [postId, 'active']);
     if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
 
-    const acceptedResponses = await query(
-        'SELECT COUNT(*) FROM lfg_responses WHERE post_id = $1 AND status = $2',
-        [postId, 'accepted']
-    );
-
-    const neededCount = postRes.rows[0].players_needed;
-    if (parseInt(acceptedResponses.rows[0].count, 10) < neededCount) {
-        throw new Error(`Необходимо принять ${neededCount} игроков`);
+    const cnt = await query('SELECT COUNT(*) FROM lfg_responses WHERE post_id=$1 AND status=$2', [postId, 'accepted']);
+    if (parseInt(cnt.rows[0].count, 10) < postRes.rows[0].players_needed) {
+        throw new Error(`Нужно ${postRes.rows[0].players_needed} игроков`);
     }
-
-    await query('UPDATE lfg_posts SET status = $1, completed_at = NOW() WHERE id = $2', ['completed', postId]);
+    await query('UPDATE lfg_posts SET status=$1, completed_at=NOW() WHERE id=$2', ['completed', postId]);
     return true;
 }
 
 async function addReviewToLfg(postId, authorId, rating, comment) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1 AND status = $2', [postId, 'completed']);
-    if (postRes.rows.length === 0) throw new Error('Анкета не найдена');
+    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id=$1 AND status=$2', [postId, 'completed']);
+    if (postRes.rows.length === 0) throw new Error('Не найдена');
     if (postRes.rows[0].author_id !== authorId) throw new Error('Нет прав');
 
-    const normalizedRating = Math.max(1, Math.min(5, parseInt(rating, 10) || 0));
-    const normalizedComment = String(comment || '').trim().slice(0, 200);
-    if (!normalizedRating || !normalizedComment) throw new Error('Rating and comment required');
+    const r = Math.max(1, Math.min(5, parseInt(rating, 10) || 0));
+    const c = sanitizeString(comment, 200);
+    if (!r || !c) throw new Error('Нужна оценка и комментарий');
 
-    const review = { rating: normalizedRating, comment: normalizedComment, createdAt: new Date().toISOString() };
-    await query('UPDATE lfg_posts SET review = $1 WHERE id = $2', [JSON.stringify(review), postId]);
+    const review = { rating: r, comment: c, createdAt: new Date().toISOString() };
+    await query('UPDATE lfg_posts SET review=$1 WHERE id=$2', [JSON.stringify(review), postId]);
+
+    // начисляем ELO принятым игрокам
+    const accepted = await query('SELECT user_id FROM lfg_responses WHERE post_id=$1 AND status=$2', [postId, 'accepted']);
+    for (const row of accepted.rows) {
+        await query('UPDATE users SET rating = rating + 10, matches_played = matches_played + 1 WHERE id=$1', [row.user_id]);
+    }
+    await query('UPDATE users SET rating = rating + 15, matches_played = matches_played + 1 WHERE id=$1', [authorId]);
+
     return true;
 }
 
 async function deleteLfgPost(postId, userId, isAdmin) {
-    const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [postId]);
-    if (postRes.rows.length === 0) return false;
-    if (postRes.rows[0].author_id !== userId && !isAdmin) return false;
-    await query('DELETE FROM lfg_posts WHERE id = $1', [postId]);
+    const r = await query('SELECT author_id FROM lfg_posts WHERE id=$1', [postId]);
+    if (r.rows.length === 0) return false;
+    if (r.rows[0].author_id !== userId && !isAdmin) return false;
+    await query('DELETE FROM lfg_posts WHERE id=$1', [postId]);
     return true;
 }
 
 // ================== FRIENDS ==================
 async function getFriends(userId) {
-    const res = await query(`
+    const r = await query(`
         SELECT u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, u.region, u.role, u.balance
-        FROM users u
-        JOIN friends f ON f.friend_id = u.id
-        WHERE f.user_id = $1
+        FROM users u JOIN friends f ON f.friend_id = u.id WHERE f.user_id = $1
     `, [userId]);
-    return res.rows.map(toCamelCase);
+    return r.rows.map(toCamelCase);
 }
-
-async function sendFriendRequest(requestId, fromId, toId) {
-    await query(
-        `INSERT INTO friend_requests (id, from_id, to_id, status, created_at) VALUES ($1, $2, $3, 'pending', NOW())`,
-        [requestId, fromId, toId]
-    );
+async function sendFriendRequest(id, fromId, toId) {
+    await query(`INSERT INTO friend_requests (id, from_id, to_id, status, created_at) VALUES ($1,$2,$3,'pending',NOW())`,
+        [id, fromId, toId]);
 }
-
 async function getFriendRequests(toUserId) {
-    const res = await query(`
+    const r = await query(`
         SELECT fr.*, u.steam_nickname as from_name, u.steam_avatar as from_avatar
-        FROM friend_requests fr
-        JOIN users u ON fr.from_id = u.id
-        WHERE fr.to_id = $1 AND fr.status = 'pending'
-        ORDER BY fr.created_at DESC
+        FROM friend_requests fr JOIN users u ON fr.from_id = u.id
+        WHERE fr.to_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC
     `, [toUserId]);
-    return res.rows.map(row => toCamelCase(row));
+    return r.rows.map(toCamelCase);
 }
-
 async function getSentFriendRequests(fromUserId) {
-    const res = await query(`
+    const r = await query(`
         SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar
-        FROM friend_requests fr
-        JOIN users u ON fr.to_id = u.id
-        WHERE fr.from_id = $1 AND fr.status = 'pending'
-        ORDER BY fr.created_at DESC
+        FROM friend_requests fr JOIN users u ON fr.to_id = u.id
+        WHERE fr.from_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC
     `, [fromUserId]);
-    return res.rows.map(row => toCamelCase(row));
+    return r.rows.map(toCamelCase);
 }
-
 async function acceptFriendRequest(requestId, toUserId) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        const reqRes = await client.query(
-            'SELECT from_id, to_id FROM friend_requests WHERE id = $1 AND to_id = $2 AND status = $3',
-            [requestId, toUserId, 'pending']
-        );
-        if (reqRes.rows.length === 0) throw new Error('Request not found');
+        const reqRes = await client.query('SELECT from_id, to_id FROM friend_requests WHERE id=$1 AND to_id=$2 AND status=$3',
+            [requestId, toUserId, 'pending']);
+        if (reqRes.rows.length === 0) throw new Error('Not found');
         const { from_id, to_id } = reqRes.rows[0];
-        await client.query('INSERT INTO friends (user_id, friend_id) VALUES ($1, $2), ($2, $1)', [from_id, to_id]);
-        await client.query('UPDATE friend_requests SET status = $1 WHERE id = $2', ['accepted', requestId]);
+        await client.query('INSERT INTO friends (user_id, friend_id) VALUES ($1,$2),($2,$1) ON CONFLICT DO NOTHING', [from_id, to_id]);
+        await client.query('UPDATE friend_requests SET status=$1 WHERE id=$2', ['accepted', requestId]);
         await client.query('COMMIT');
         return true;
-    } catch (e) {
-        await client.query('ROLLBACK');
-        throw e;
-    } finally {
-        client.release();
-    }
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
 }
-
-async function declineFriendRequest(requestId, toUserId) {
-    const res = await query(
-        `UPDATE friend_requests SET status = 'declined' WHERE id = $1 AND to_id = $2 AND status = 'pending'`,
-        [requestId, toUserId]
-    );
-    return res.rowCount > 0;
+async function declineFriendRequest(id, userId) {
+    const r = await query(`UPDATE friend_requests SET status='declined' WHERE id=$1 AND to_id=$2 AND status='pending'`, [id, userId]);
+    return r.rowCount > 0;
 }
-
-async function cancelFriendRequest(requestId, fromUserId) {
-    const res = await query(
-        `DELETE FROM friend_requests WHERE id = $1 AND from_id = $2 AND status = 'pending'`,
-        [requestId, fromUserId]
-    );
-    return res.rowCount > 0;
+async function cancelFriendRequest(id, userId) {
+    const r = await query(`DELETE FROM friend_requests WHERE id=$1 AND from_id=$2 AND status='pending'`, [id, userId]);
+    return r.rowCount > 0;
 }
-
 async function removeFriend(userId, friendId) {
-    await query(
-        'DELETE FROM friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)',
-        [userId, friendId]
-    );
+    await query('DELETE FROM friends WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)', [userId, friendId]);
     return true;
 }
 
 // ================== MESSAGES ==================
-async function getMessages(userId, otherUserId) {
-    const res = await query(`
+async function getMessages(userId, otherId) {
+    const r = await query(`
         SELECT * FROM messages
-        WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1)
+        WHERE (from_id=$1 AND to_id=$2) OR (from_id=$2 AND to_id=$1)
         ORDER BY created_at ASC
-    `, [userId, otherUserId]);
-    return res.rows.map(toCamelCase);
+    `, [userId, otherId]);
+    return r.rows.map(toCamelCase);
 }
-
-async function createMessage(message) {
-    const { id, from_id, to_id, text } = message;
-    const res = await query(`
+async function createMessage(m) {
+    const r = await query(`
         INSERT INTO messages (id, from_id, to_id, text, read, created_at)
-        VALUES ($1, $2, $3, $4, false, NOW())
-        RETURNING *
-    `, [id, from_id, to_id, text]);
-    return toCamelCase(res.rows[0]);
+        VALUES ($1,$2,$3,$4,false,NOW()) RETURNING *
+    `, [m.id, m.from_id, m.to_id, m.text]);
+    return toCamelCase(r.rows[0]);
 }
-
-async function markMessagesAsRead(userId, fromUserId) {
-    await query(`UPDATE messages SET read = true WHERE to_id = $1 AND from_id = $2 AND read = false`,
-        [userId, fromUserId]);
+async function markMessagesAsRead(userId, fromId) {
+    await query(`UPDATE messages SET read=true WHERE to_id=$1 AND from_id=$2 AND read=false`, [userId, fromId]);
 }
-
 async function getUnreadCount(userId) {
-    const res = await query(`SELECT COUNT(*) FROM messages WHERE to_id = $1 AND read = false`, [userId]);
-    return parseInt(res.rows[0].count, 10);
+    const r = await query('SELECT COUNT(*) FROM messages WHERE to_id=$1 AND read=false', [userId]);
+    return parseInt(r.rows[0].count, 10);
 }
 
 // ================== BALANCE ==================
 async function getUserBalance(userId) {
-    const res = await query('SELECT balance FROM users WHERE id = $1', [userId]);
-    return res.rows[0]?.balance || 0;
+    const r = await query('SELECT balance FROM users WHERE id=$1', [userId]);
+    return r.rows[0]?.balance || 0;
 }
-
-async function updateUserBalance(userId, newBalance) {
-    await query('UPDATE users SET balance = $1 WHERE id = $2', [newBalance, userId]);
+async function updateUserBalance(userId, balance) {
+    await query('UPDATE users SET balance=$1 WHERE id=$2', [balance, userId]);
 }
 
 // ================== TOURNAMENTS ==================
 async function getTournaments() {
-    const res = await query('SELECT * FROM tournaments ORDER BY created_at DESC');
-    return res.rows.map(row => {
+    const r = await query('SELECT * FROM tournaments ORDER BY created_at DESC');
+    return r.rows.map(row => {
         const t = toCamelCase(row);
-        if (typeof t.registeredTeams === 'string') {
-            t.registeredTeams = safeJsonParse(t.registeredTeams, []);
-        }
+        if (typeof t.registeredTeams === 'string') t.registeredTeams = safeJsonParse(t.registeredTeams, []);
         return t;
     });
 }
-
 async function getTournamentById(id) {
-    const res = await query('SELECT * FROM tournaments WHERE id = $1', [id]);
-    if (res.rows.length === 0) return null;
-    const t = toCamelCase(res.rows[0]);
-    if (typeof t.registeredTeams === 'string') {
-        t.registeredTeams = safeJsonParse(t.registeredTeams, []);
-    }
+    const r = await query('SELECT * FROM tournaments WHERE id=$1', [id]);
+    if (r.rows.length === 0) return null;
+    const t = toCamelCase(r.rows[0]);
+    if (typeof t.registeredTeams === 'string') t.registeredTeams = safeJsonParse(t.registeredTeams, []);
     return t;
 }
-
-async function createTournament(tournament) {
-    const {
-        id, title, description, prize_pool, date, status, entry_fee,
-        max_teams, format, rules, schedule, registered_teams
-    } = tournament;
-    const res = await query(`
+async function createTournament(t) {
+    const r = await query(`
         INSERT INTO tournaments (id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule, registered_teams)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING *
-    `, [id, title, description, prize_pool, date, status, entry_fee, max_teams, format, rules, schedule,
-        JSON.stringify(registered_teams || [])]);
-    return toCamelCase(res.rows[0]);
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *
+    `, [t.id, t.title, t.description, t.prize_pool, t.date, t.status, t.entry_fee, t.max_teams,
+        t.format, t.rules, t.schedule, JSON.stringify(t.registered_teams || [])]);
+    return toCamelCase(r.rows[0]);
 }
 
 // ================== INIT DB ==================
@@ -574,7 +518,6 @@ async function initPostgresDB() {
                 settings JSONB
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS lfg_posts (
                 id TEXT PRIMARY KEY,
@@ -597,7 +540,6 @@ async function initPostgresDB() {
                 completed_at TIMESTAMP
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS lfg_responses (
                 id TEXT PRIMARY KEY,
@@ -609,7 +551,6 @@ async function initPostgresDB() {
                 created_at TIMESTAMP DEFAULT NOW()
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS friends (
                 user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
@@ -618,7 +559,6 @@ async function initPostgresDB() {
                 PRIMARY KEY (user_id, friend_id)
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS friend_requests (
                 id TEXT PRIMARY KEY,
@@ -628,7 +568,6 @@ async function initPostgresDB() {
                 status TEXT DEFAULT 'pending'
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
@@ -639,7 +578,6 @@ async function initPostgresDB() {
                 created_at TIMESTAMP DEFAULT NOW()
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS tournaments (
                 id TEXT PRIMARY KEY,
@@ -657,7 +595,6 @@ async function initPostgresDB() {
                 created_at TIMESTAMP DEFAULT NOW()
             )
         `);
-
         await client.query(`
             CREATE TABLE IF NOT EXISTS payments (
                 id TEXT PRIMARY KEY,
@@ -669,14 +606,71 @@ async function initPostgresDB() {
                 completed_at TIMESTAMP
             )
         `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS teams (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                tag TEXT,
+                logo_url TEXT,
+                description TEXT,
+                captain_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS team_members (
+                team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
+                user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                role TEXT DEFAULT 'MEMBER',
+                joined_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (team_id, user_id)
+            )
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS team_invites (
+                id TEXT PRIMARY KEY,
+                team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
+                from_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                to_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS tournament_teams (
+                id TEXT PRIMARY KEY,
+                tournament_id TEXT REFERENCES tournaments(id) ON DELETE CASCADE,
+                team_name TEXT NOT NULL,
+                captain_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+                players JSONB NOT NULL,
+                status TEXT DEFAULT 'registered',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
 
-        // Автоназначение админа, если админов нет
-        const adminCount = await client.query('SELECT COUNT(*) FROM users WHERE is_admin = true');
+        // МИГРАЦИИ (безопасные)
+        const migrations = [
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS banner_url TEXT`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS faceit_url TEXT`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS steam_url TEXT`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS matches_played INTEGER DEFAULT 0`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT 1000`,
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Новичок'`,
+            `ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS rounds JSONB DEFAULT '[]'::jsonb`,
+            `ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS bracket_type TEXT DEFAULT 'SINGLE_ELIM'`
+        ];
+        for (const m of migrations) {
+            try { await client.query(m); } catch (e) { /* ignore if exists */ }
+        }
+
+        // Автоназначение админа
+        const adminCount = await client.query('SELECT COUNT(*) FROM users WHERE is_admin=true');
         if (parseInt(adminCount.rows[0].count, 10) === 0) {
-            const firstUser = await client.query('SELECT id FROM users ORDER BY created_at ASC LIMIT 1');
-            if (firstUser.rows.length > 0) {
-                await client.query('UPDATE users SET is_admin = true WHERE id = $1', [firstUser.rows[0].id]);
-                console.log('👑 Первый пользователь назначен админом (auto-promote при старте)');
+            const first = await client.query('SELECT id FROM users ORDER BY created_at ASC LIMIT 1');
+            if (first.rows.length > 0) {
+                await client.query('UPDATE users SET is_admin=true WHERE id=$1', [first.rows[0].id]);
+                console.log('👑 Первый пользователь назначен админом');
             }
         }
 
@@ -690,7 +684,7 @@ async function initPostgresDB() {
 }
 
 // ================== MIDDLEWARE ==================
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -708,51 +702,36 @@ app.get('/api/auth/steam/callback', async (req, res) => {
     const steamId = claimedId.split('/').pop();
     try {
         const apiUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${STEAM_API_KEY}&steamids=${steamId}`;
-        const steamResponse = await axios.get(apiUrl);
-        const steamUser = steamResponse.data.response?.players?.[0];
-        if (!steamUser) {
-            console.error('❌ Steam API не вернул игрока. Проверьте ключ. steamId:', steamId);
-            return res.redirect(`${frontendUrl}/?error=steam_api_failed`);
-        }
+        const r = await axios.get(apiUrl);
+        const steamUser = r.data.response?.players?.[0];
+        if (!steamUser) return res.redirect(`${frontendUrl}/?error=steam_api_failed`);
 
         let user = await findUserBySteamId(steamId);
         if (!user) {
-            const userCountRes = await query('SELECT COUNT(*) FROM users');
-            const isFirstUser = parseInt(userCountRes.rows[0].count, 10) === 0;
-            const newUser = {
-                id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            const cnt = await query('SELECT COUNT(*) FROM users');
+            const isFirst = parseInt(cnt.rows[0].count, 10) === 0;
+            user = await createUser({
+                id: `user_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
                 steam_id: steamId,
                 steam_nickname: steamUser.personaname,
                 steam_avatar: steamUser.avatarfull,
                 display_name: steamUser.personaname,
-                region: 'RU',
-                role: 'RIFLER',
-                has_mic: false,
-                bio: '',
-                balance: 1000,
-                is_admin: isFirstUser,
-                is_banned: false
-            };
-            user = await createUser(newUser);
-            console.log(`✅ Создан пользователь: ${user.displayName} (${user.steamId}), isAdmin=${user.isAdmin}`);
+                region: 'RU', role: 'RIFLER', has_mic: false, bio: '',
+                balance: 1000, is_admin: isFirst, is_banned: false
+            });
 
-            const tournamentCountRes = await query('SELECT COUNT(*) FROM tournaments');
-            if (parseInt(tournamentCountRes.rows[0].count, 10) === 0) {
+            const tcnt = await query('SELECT COUNT(*) FROM tournaments');
+            if (parseInt(tcnt.rows[0].count, 10) === 0) {
                 await createTournament({
                     id: `tourn_${Date.now()}`,
                     title: 'BARSIDE CUP #1',
                     description: 'Главный турнир сезона',
                     prize_pool: '50000₽',
-                    date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: 'UPCOMING',
-                    entry_fee: 500,
-                    max_teams: 16,
-                    format: '5x5',
-                    rules: 'Best of 3',
-                    schedule: 'Первые выходные',
+                    date: new Date(Date.now() + 7 * 86400000).toISOString(),
+                    status: 'UPCOMING', entry_fee: 500, max_teams: 16, format: '5x5',
+                    rules: 'Best of 3', schedule: 'Первые выходные',
                     registered_teams: []
                 });
-                console.log('🏆 Создан турнир BARSIDE CUP #1');
             }
         } else {
             await updateUser(steamId, {
@@ -760,21 +739,13 @@ app.get('/api/auth/steam/callback', async (req, res) => {
                 steam_avatar: steamUser.avatarfull
             });
             user = await findUserBySteamId(steamId);
-            console.log(`🔐 Вход: ${user.displayName}, isAdmin=${user.isAdmin}`);
         }
 
-        const sessionToken = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id })).toString('base64');
-        res.cookie('auth_token', sessionToken, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-            sameSite: 'lax'
-        });
+        const token = Buffer.from(JSON.stringify({ userId: user.id, steamId: user.steam_id })).toString('base64');
+        res.cookie('auth_token', token, { httpOnly: true, maxAge: 7*24*60*60*1000, sameSite: 'lax' });
         res.redirect(`${frontendUrl}/`);
-    } catch (error) {
-        console.error('Steam auth error:', error.message);
-        if (error.response) {
-            console.error('Steam API response:', error.response.status, error.response.data);
-        }
+    } catch (e) {
+        console.error('Steam auth error:', e.message);
         res.redirect(`${frontendUrl}/?error=auth_failed`);
     }
 });
@@ -785,18 +756,17 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.json({ data: null });
+    const p = getAuthPayload(req);
+    if (!p) return res.json({ data: null });
     try {
-        const user = await findUserById(payload.userId);
-        if (user) return res.json({ data: user });
-    } catch (e) {}
-    res.json({ data: null });
+        const u = await findUserById(p.userId);
+        res.json({ data: u });
+    } catch (e) { res.json({ data: null }); }
 });
 
 // ================== ONLINE ==================
 const onlineSessions = new Set();
-app.get('/api/online', (req, res) => { res.json({ count: onlineSessions.size }); });
+app.get('/api/online', (req, res) => res.json({ count: onlineSessions.size }));
 app.post('/api/heartbeat', (req, res) => {
     const { sessionId } = req.body;
     if (sessionId) onlineSessions.add(sessionId);
@@ -809,584 +779,516 @@ app.get('/api/profile/:steamId', async (req, res) => {
         const user = await findUserBySteamId(req.params.steamId);
         if (!user) return res.status(404).json({ error: 'User not found' });
         res.json({ user });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/profile/:steamId', async (req, res) => {
+app.put('/api/profile/:steamId', rateLimitMiddleware(20, 60000), async (req, res) => {
     const payload = getAuthPayload(req);
     if (!payload) return res.status(401).json({ error: 'Unauthorized' });
     try {
         const currentUser = await findUserById(payload.userId);
-        const targetUser = await findUserBySteamId(req.params.steamId);
-        if (!targetUser) return res.status(404).json({ error: 'User not found' });
-        const isAdmin = currentUser?.isAdmin;
-        const isOwnProfile = targetUser.id === payload.userId;
-        if (!isOwnProfile && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
+        const target = await findUserBySteamId(req.params.steamId);
+        if (!target) return res.status(404).json({ error: 'User not found' });
+        if (target.id !== payload.userId && !currentUser?.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
+        const map = {
+            displayName: 'display_name', region: 'region', role: 'role',
+            hasMic: 'has_mic', bio: 'bio', avatarUrl: 'avatar_url',
+            bannerUrl: 'banner_url', faceitUrl: 'faceit_url', steamUrl: 'steam_url'
+        };
         const updates = {};
-        if (req.body.displayName !== undefined) updates.display_name = req.body.displayName;
-        if (req.body.region !== undefined) updates.region = req.body.region;
-        if (req.body.role !== undefined) updates.role = req.body.role;
-        if (req.body.hasMic !== undefined) updates.has_mic = req.body.hasMic;
-        if (req.body.bio !== undefined) updates.bio = req.body.bio;
+        for (const [k, col] of Object.entries(map)) {
+            if (req.body[k] !== undefined) {
+                let v = req.body[k];
+                if (typeof v === 'string') v = v.trim().slice(0, 500);
+                updates[col] = v;
+            }
+        }
 
-        if (Object.keys(updates).length > 0) await updateUser(req.params.steamId, updates);
-        const updatedUser = await findUserBySteamId(req.params.steamId);
-        res.json({ user: updatedUser });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+        if (Object.keys(updates).length > 0) {
+            const fields = Object.keys(updates).map((c, i) => `${c} = $${i+1}`).join(', ');
+            const values = [...Object.values(updates), req.params.steamId];
+            await query(`UPDATE users SET ${fields} WHERE steam_id = $${values.length}`, values);
+        }
+
+        res.json({ user: await findUserBySteamId(req.params.steamId) });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ================== BALANCE ==================
 app.get('/api/balance', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const balance = await getUserBalance(payload.userId);
-        res.json({ balance });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { res.json({ balance: await getUserBalance(p.userId) }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ================== STATS ==================
 app.get('/api/stats', async (req, res) => {
     try {
-        const usersRes = await query('SELECT COUNT(*) FROM users');
-        const lfgRes = await query("SELECT COUNT(*) FROM lfg_posts WHERE status = 'active'");
-        const tournamentsRes = await query('SELECT COUNT(*) FROM tournaments');
+        const u = await query('SELECT COUNT(*) FROM users');
+        const l = await query("SELECT COUNT(*) FROM lfg_posts WHERE status='active'");
+        const t = await query('SELECT COUNT(*) FROM tournaments');
         res.json({
-            totalUsers: parseInt(usersRes.rows[0].count, 10),
-            totalLfgPosts: parseInt(lfgRes.rows[0].count, 10),
-            totalTournaments: parseInt(tournamentsRes.rows[0].count, 10),
+            totalUsers: parseInt(u.rows[0].count, 10),
+            totalLfgPosts: parseInt(l.rows[0].count, 10),
+            totalTournaments: parseInt(t.rows[0].count, 10),
             online: onlineSessions.size
         });
-    } catch (err) {
-        console.error('Stats error:', err);
+    } catch (e) {
+        console.error('Stats error:', e.message);
         res.json({ totalUsers: 0, totalLfgPosts: 0, totalTournaments: 0, online: 0 });
     }
 });
 
 // ================== LFG ROUTES ==================
 app.get('/api/lfg', async (req, res) => {
-    try {
-        const posts = await getActiveLfgPosts();
-        res.json({ data: posts });
-    } catch (err) {
-        console.error('GET /api/lfg error:', err);
-        res.json({ data: [] });
-    }
+    try { res.json({ data: await getActiveLfgPosts() }); }
+    catch (e) { res.json({ data: [] }); }
 });
-
 app.get('/api/lfg/completed', async (req, res) => {
-    try {
-        const posts = await getCompletedLfgPosts();
-        res.json({ data: posts });
-    } catch (err) {
-        console.error('GET /api/lfg/completed error:', err);
-        res.json({ data: [] });
-    }
+    try { res.json({ data: await getCompletedLfgPosts() }); }
+    catch (e) { res.json({ data: [] }); }
 });
 
-app.post('/api/lfg', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+app.post('/api/lfg', rateLimitMiddleware(5, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
+        const user = await findUserById(p.userId);
+        const { title, region, myRole, scheduleType, schedule, weekSchedule, playersNeeded,
+                rolesNeeded, minFaceitLevel, minPremierRank, description, language } = req.body;
+        if (!title || !region || !myRole) return res.status(400).json({ error: 'Заполните поля' });
 
-        const {
-            title, region, myRole, scheduleType, schedule, weekSchedule, playersNeeded,
-            rolesNeeded, minFaceitLevel, minPremierRank, description, language
-        } = req.body;
+        const allowed = ['IGL','AWP','ENTRY','RIFLER','LURKER'];
+        const cnt = Math.max(1, Math.min(4, parseInt(playersNeeded, 10) || 1));
+        if (!allowed.includes(myRole)) return res.status(400).json({ error: 'Bad role' });
 
-        if (!title || !region || !myRole) return res.status(400).json({ error: 'Missing required fields' });
+        const selected = Object.entries(rolesNeeded || {}).filter(([,v]) => v).map(([k]) => k);
+        if (selected.length !== cnt) return res.status(400).json({ error: `Нужно ${cnt} ролей` });
+        if (selected.includes(myRole)) return res.status(400).json({ error: 'Ваша роль занята' });
 
-        const allowedRoles = ['IGL', 'AWP', 'ENTRY', 'RIFLER', 'LURKER'];
-        const neededCount = Math.max(1, Math.min(4, parseInt(playersNeeded, 10) || 1));
-        if (!allowedRoles.includes(myRole)) return res.status(400).json({ error: 'Invalid role' });
-
-        const selectedRoles = Object.entries(rolesNeeded || {})
-            .filter(([, selected]) => selected)
-            .map(([role]) => role);
-        if (selectedRoles.length !== neededCount) return res.status(400).json({ error: `Выберите ровно ${neededCount} ролей` });
-        if (selectedRoles.includes(myRole)) return res.status(400).json({ error: 'Ваша роль уже занята вами' });
-        if (selectedRoles.some(r => !allowedRoles.includes(r))) return res.status(400).json({ error: 'Invalid roles' });
-
-        const normalizedRolesNeeded = Object.fromEntries(allowedRoles.map(r => [r, selectedRoles.includes(r)]));
-
-        const newPost = {
-            id: `lfg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        const normalized = Object.fromEntries(allowed.map(r => [r, selected.includes(r)]));
+        const created = await createLfgPost({
+            id: `lfg_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
             authorId: user.id,
-            title,
-            region,
+            title: sanitizeString(title, 100),
+            region: sanitizeString(region, 10),
             myRole,
             scheduleType: scheduleType || 'daily',
-            schedule: schedule || '',
+            schedule: sanitizeString(schedule, 200),
             weekSchedule: weekSchedule || {},
-            playersNeeded: neededCount,
-            rolesNeeded: normalizedRolesNeeded,
-            minFaceitLevel: minFaceitLevel || 1,
-            minPremierRank: minPremierRank || 0,
-            description: description || '',
+            playersNeeded: cnt,
+            rolesNeeded: normalized,
+            minFaceitLevel: parseInt(minFaceitLevel, 10) || 1,
+            minPremierRank: parseInt(minPremierRank, 10) || 0,
+            description: sanitizeString(description, 500),
             language: language || 'ru'
-        };
-
-        const created = await createLfgPost(newPost);
-        const result = {
-            ...created,
-            author: {
-                id: user.id,
-                steamId: user.steamId,
-                steamNickname: user.steamNickname,
-                steamAvatar: user.steamAvatar,
-                displayName: user.displayName,
-                region: user.region,
-                role: user.role
-            }
-        };
-        res.status(201).json({ data: result });
-    } catch (err) {
-        console.error('Error creating LFG post:', err);
-        res.status(500).json({ error: 'Internal server error: ' + err.message });
+        });
+        res.status(201).json({ data: created });
+    } catch (e) {
+        console.error('Create LFG error:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-app.post('/api/lfg/:postId/respond', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+app.post('/api/lfg/:postId/respond', rateLimitMiddleware(10, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
+        const user = await findUserById(p.userId);
         const { role, message } = req.body;
-        if (!role) return res.status(400).json({ error: 'Role is required' });
-
+        if (!role) return res.status(400).json({ error: 'Role required' });
         const response = await addResponseToLfg(req.params.postId, user.id, role, message);
+
+        const post = await query('SELECT author_id FROM lfg_posts WHERE id=$1', [req.params.postId]);
+        if (post.rows[0]) {
+            pushEvent(post.rows[0].author_id, 'new-response', {
+                postId: req.params.postId, fromUserId: user.id, role
+            });
+        }
         res.status(201).json({ data: response });
-    } catch (err) {
-        console.error('Respond error:', err);
-        res.status(400).json({ error: err.message });
-    }
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.get('/api/lfg/:postId/responses', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
-        const postRes = await query('SELECT author_id FROM lfg_posts WHERE id = $1', [req.params.postId]);
-        if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
-        if (postRes.rows[0].author_id !== user.id && !user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
-
-        const responses = await getLfgResponses(req.params.postId);
-        res.json({ data: responses });
-    } catch (err) {
-        console.error('Get responses error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
+        const user = await findUserById(p.userId);
+        const post = await query('SELECT author_id FROM lfg_posts WHERE id=$1', [req.params.postId]);
+        if (post.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        if (post.rows[0].author_id !== user.id && !user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+        res.json({ data: await getLfgResponses(req.params.postId) });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/lfg/responses/unread', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const unreadRes = await query(`
-            SELECT COUNT(*)
-            FROM lfg_responses r
-            JOIN lfg_posts p ON r.post_id = p.id
-            WHERE p.author_id = $1 AND p.status = 'active' AND r.status = 'pending'
-        `, [payload.userId]);
-        res.json({ count: parseInt(unreadRes.rows[0].count, 10) || 0 });
-    } catch (err) {
-        res.json({ count: 0 });
-    }
+        const r = await query(`
+            SELECT COUNT(*) FROM lfg_responses r JOIN lfg_posts p ON r.post_id = p.id
+            WHERE p.author_id=$1 AND p.status='active' AND r.status='pending'
+        `, [p.userId]);
+        res.json({ count: parseInt(r.rows[0].count, 10) || 0 });
+    } catch (e) { res.json({ count: 0 }); }
 });
 
 app.post('/api/lfg/:postId/responses/:responseId/accept', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
+        const user = await findUserById(p.userId);
         await acceptResponse(req.params.postId, req.params.responseId, user.id);
+
+        const resp = await query('SELECT user_id FROM lfg_responses WHERE id=$1', [req.params.responseId]);
+        if (resp.rows[0]) pushEvent(resp.rows[0].user_id, 'response-accepted', { postId: req.params.postId });
+
         res.json({ success: true });
-    } catch (err) {
-        console.error('Accept error:', err);
-        res.status(400).json({ error: err.message });
-    }
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.post('/api/lfg/:postId/responses/:responseId/reject', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
+        const user = await findUserById(p.userId);
         await rejectResponse(req.params.postId, req.params.responseId, user.id);
         res.json({ success: true });
-    } catch (err) {
-        console.error('Reject error:', err);
-        res.status(400).json({ error: err.message });
-    }
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.post('/api/lfg/:postId/complete', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
+        const user = await findUserById(p.userId);
         await completeLfgPost(req.params.postId, user.id);
         res.json({ success: true });
-    } catch (err) {
-        console.error('Complete error:', err);
-        res.status(400).json({ error: err.message });
-    }
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.post('/api/lfg/:postId/review', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
+        const user = await findUserById(p.userId);
         const { rating, comment } = req.body;
         if (!rating || !comment) return res.status(400).json({ error: 'Rating and comment required' });
-
         await addReviewToLfg(req.params.postId, user.id, rating, comment);
         res.json({ success: true });
-    } catch (err) {
-        console.error('Review error:', err);
-        res.status(400).json({ error: err.message });
-    }
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.delete('/api/lfg/:id', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-        const deleted = await deleteLfgPost(req.params.id, user.id, user.isAdmin);
-        if (!deleted) return res.status(404).json({ error: 'Post not found or forbidden' });
+        const user = await findUserById(p.userId);
+        const ok = await deleteLfgPost(req.params.id, user.id, user.isAdmin);
+        if (!ok) return res.status(404).json({ error: 'Not found' });
         res.json({ success: true });
-    } catch (err) {
-        console.error('Delete error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ================== FRIENDS ROUTES ==================
 app.get('/api/friends', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const friends = await getFriends(payload.userId);
-        res.json({ data: friends });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { res.json({ data: await getFriends(p.userId) }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/friends/requests', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const requests = await getFriendRequests(payload.userId);
-        res.json({ data: requests });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { res.json({ data: await getFriendRequests(p.userId) }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/friends/requests/sent', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const requests = await getSentFriendRequests(payload.userId);
-        res.json({ data: requests });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { res.json({ data: await getSentFriendRequests(p.userId) }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/friends/request/:userId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+app.post('/api/friends/request/:userId', rateLimitMiddleware(20, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const fromUser = await findUserById(payload.userId);
+        const fromUser = await findUserById(p.userId);
         const toUser = await findUserById(req.params.userId);
-        if (!fromUser || !toUser) return res.status(404).json({ error: 'User not found' });
-        if (fromUser.id === req.params.userId) return res.status(400).json({ error: 'Cannot add yourself' });
+        if (!fromUser || !toUser) return res.status(404).json({ error: 'Not found' });
+        if (fromUser.id === req.params.userId) return res.status(400).json({ error: 'Нельзя себя' });
 
-        const existingReq = await query(
-            'SELECT * FROM friend_requests WHERE from_id = $1 AND to_id = $2 AND status = $3',
-            [fromUser.id, req.params.userId, 'pending']
-        );
-        if (existingReq.rows.length > 0) return res.status(400).json({ error: 'Request already sent' });
+        const exists = await query('SELECT 1 FROM friend_requests WHERE from_id=$1 AND to_id=$2 AND status=$3',
+            [fromUser.id, req.params.userId, 'pending']);
+        if (exists.rows.length > 0) return res.status(400).json({ error: 'Уже отправлена' });
 
-        const existingFriend = await query(
-            'SELECT * FROM friends WHERE user_id = $1 AND friend_id = $2',
-            [fromUser.id, req.params.userId]
-        );
-        if (existingFriend.rows.length > 0) return res.status(400).json({ error: 'Already friends' });
+        const alreadyFriend = await query('SELECT 1 FROM friends WHERE user_id=$1 AND friend_id=$2',
+            [fromUser.id, req.params.userId]);
+        if (alreadyFriend.rows.length > 0) return res.status(400).json({ error: 'Уже друзья' });
 
-        await sendFriendRequest(
-            `fr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-            fromUser.id,
-            req.params.userId
-        );
+        await sendFriendRequest(`fr_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, fromUser.id, req.params.userId);
+        pushEvent(req.params.userId, 'friend-request', { fromId: fromUser.id, fromName: fromUser.displayName });
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/friends/request/:requestId/accept', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        await acceptFriendRequest(req.params.requestId, payload.userId);
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { await acceptFriendRequest(req.params.requestId, p.userId); res.json({ success: true }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/friends/request/:requestId/decline', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        await declineFriendRequest(req.params.requestId, payload.userId);
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { await declineFriendRequest(req.params.requestId, p.userId); res.json({ success: true }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.delete('/api/friends/request/:requestId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const deleted = await cancelFriendRequest(req.params.requestId, payload.userId);
-        if (!deleted) return res.status(404).json({ error: 'Request not found' });
+        const ok = await cancelFriendRequest(req.params.requestId, p.userId);
+        if (!ok) return res.status(404).json({ error: 'Not found' });
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.delete('/api/friends/:friendId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        await removeFriend(payload.userId, req.params.friendId);
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.get('/api/user/:steamId/friends', async (req, res) => {
-    try {
-        const user = await findUserBySteamId(req.params.steamId);
-        if (!user) return res.json({ data: [] });
-        const friends = await getFriends(user.id);
-        res.json({ data: friends });
-    } catch (err) {
-        res.json({ data: [] });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { await removeFriend(p.userId, req.params.friendId); res.json({ success: true }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ================== MESSAGES ==================
 app.get('/api/messages/:userId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const messages = await getMessages(payload.userId, req.params.userId);
-        await markMessagesAsRead(payload.userId, req.params.userId);
+        const messages = await getMessages(p.userId, req.params.userId);
+        await markMessagesAsRead(p.userId, req.params.userId);
         res.json({ data: messages });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/messages/:userId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+app.post('/api/messages/:userId', rateLimitMiddleware(60, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const { text } = req.body;
-        if (!text || !text.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
-        const newMessage = {
-            id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-            from_id: payload.userId,
-            to_id: req.params.userId,
-            text: text.trim()
-        };
-        const created = await createMessage(newMessage);
+        const text = sanitizeString(req.body.text, 2000);
+        if (!text) return res.status(400).json({ error: 'Пустое сообщение' });
+        const created = await createMessage({
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+            from_id: p.userId, to_id: req.params.userId, text
+        });
+        pushEvent(req.params.userId, 'new-message', {
+            fromId: p.userId, text, at: new Date().toISOString()
+        });
         res.json({ success: true, message: created });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to send message' });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/messages/unread/count', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const count = await getUnreadCount(payload.userId);
-        res.json({ count });
-    } catch (err) {
-        res.json({ count: 0 });
-    }
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try { res.json({ count: await getUnreadCount(p.userId) }); }
+    catch (e) { res.json({ count: 0 }); }
 });
 
 app.get('/api/user/by-id/:userId', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(req.params.userId);
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json({ user });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// ================== INVENTORY ==================
-app.get('/api/inventory/:steamId', async (req, res) => {
-    const { steamId } = req.params;
-    try {
-        const inventoryUrl = `https://steamcommunity.com/inventory/${steamId}/730/2?l=english&count=2000`;
-        const response = await axios.get(inventoryUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (response.data && response.data.success === 1) {
-            const assets = response.data.assets || [];
-            const descriptions = response.data.descriptions || [];
-            const items = assets.map(asset => {
-                const description = descriptions.find(d =>
-                    d.classid === asset.classid && d.instanceid === asset.instanceid
-                );
-                return {
-                    assetid: asset.assetid,
-                    name: description?.market_hash_name || description?.name || 'Unknown Item',
-                    icon: description?.icon_url
-                        ? `https://steamcommunity-a.akamaihd.net/economy/image/${description.icon_url}`
-                        : null,
-                    rarity: description?.tags?.find(t => t.category === 'Rarity')?.localized_tag_name || 'Common',
-                    quantity: asset.amount || 1
-                };
-            });
-            res.json({ success: true, total: response.data.total_inventory_count || items.length, items });
-        } else {
-            res.json({ success: false, error: 'Inventory is private', items: [], total: 0 });
-        }
-    } catch (error) {
-        res.json({ success: false, error: 'Failed to fetch inventory', items: [], total: 0 });
-    }
+        const u = await findUserById(req.params.userId);
+        if (!u) return res.status(404).json({ error: 'Not found' });
+        res.json({ user: u });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ================== TOURNAMENTS ==================
 app.get('/api/tournaments', async (req, res) => {
-    try {
-        const tournaments = await getTournaments();
-        res.json({ data: tournaments });
-    } catch (err) {
-        console.error('Get tournaments error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
+    try { res.json({ data: await getTournaments() }); }
+    catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/tournaments/:id', async (req, res) => {
     try {
-        const tournament = await getTournamentById(req.params.id);
-        if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-        res.json({ data: tournament });
-    } catch (err) {
+        const t = await getTournamentById(req.params.id);
+        if (!t) return res.status(404).json({ error: 'Not found' });
+        res.json({ data: t });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/tournaments/:id/teams', async (req, res) => {
+    try {
+        const r = await query('SELECT * FROM tournament_teams WHERE tournament_id=$1 ORDER BY created_at ASC', [req.params.id]);
+        res.json({ data: r.rows.map(row => {
+            const t = toCamelCase(row);
+            t.players = safeJsonParse(t.players, []);
+            return t;
+        })});
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/tournaments/:id/register-team', rateLimitMiddleware(10, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const user = await findUserById(p.userId);
+        const { teamName, players } = req.body;
+        if (!teamName || !Array.isArray(players) || players.length !== 5) {
+            return res.status(400).json({ error: 'Нужно 5 игроков' });
+        }
+        const t = await getTournamentById(req.params.id);
+        if (!t) return res.status(404).json({ error: 'Not found' });
+        if (t.status === 'COMPLETED') return res.status(400).json({ error: 'Завершён' });
+
+        const cnt = await query('SELECT COUNT(*) FROM tournament_teams WHERE tournament_id=$1', [req.params.id]);
+        if (parseInt(cnt.rows[0].count, 10) >= t.maxTeams) return res.status(400).json({ error: 'Турнир заполнен' });
+
+        const already = await query('SELECT 1 FROM tournament_teams WHERE tournament_id=$1 AND captain_id=$2',
+            [req.params.id, user.id]);
+        if (already.rows.length > 0) return res.status(400).json({ error: 'Уже зарегистрированы' });
+
+        const fee = t.entryFee || 0;
+        if (fee > 0) {
+            const balance = await getUserBalance(user.id);
+            if (balance < fee) return res.status(400).json({ error: `Недостаточно средств: ${balance}/${fee}` });
+            await updateUserBalance(user.id, balance - fee);
+        }
+
+        const cleanPlayers = players.map(pl => ({
+            nick: sanitizeString(pl.nick, 40),
+            role: ['IGL','AWP','ENTRY','RIFLER','LURKER'].includes(pl.role) ? pl.role : 'RIFLER'
+        }));
+
+        await query('INSERT INTO tournament_teams (id, tournament_id, team_name, captain_id, players) VALUES ($1,$2,$3,$4,$5)',
+            [`tt_${Date.now()}`, req.params.id, sanitizeString(teamName, 40), user.id, JSON.stringify(cleanPlayers)]);
+
+        res.json({ success: true, balance: await getUserBalance(user.id) });
+    } catch (e) {
+        console.error('Register team error:', e);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
-app.post('/api/tournaments/:id/register', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+// ================== TEAMS ==================
+app.post('/api/teams', rateLimitMiddleware(5, 60000), async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
+        const user = await findUserById(p.userId);
+        const { name, tag, description } = req.body;
+        const cleanName = sanitizeString(name, 40);
+        if (cleanName.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
 
-        const tournament = await getTournamentById(req.params.id);
-        if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+        const exists = await query('SELECT id FROM teams WHERE name=$1', [cleanName]);
+        if (exists.rows.length > 0) return res.status(400).json({ error: 'Название занято' });
 
-        if (tournament.status === 'COMPLETED' || tournament.status === 'CANCELLED') {
-            return res.status(400).json({ error: 'Турнир уже завершён' });
-        }
-
-        const registered = Array.isArray(tournament.registeredTeams) ? tournament.registeredTeams : [];
-        if (registered.length >= tournament.maxTeams) {
-            return res.status(400).json({ error: 'Турнир заполнен' });
-        }
-        if (registered.some(t => t.captainId === user.id)) {
-            return res.status(400).json({ error: 'Вы уже зарегистрированы в этом турнире' });
-        }
-
-        const entryFee = tournament.entryFee || 0;
-        if (entryFee > 0) {
-            const balance = await getUserBalance(user.id);
-            if (balance < entryFee) {
-                return res.status(400).json({ error: `Недостаточно средств. Нужно ${entryFee} ₽, у вас ${balance} ₽` });
-            }
-            await updateUserBalance(user.id, balance - entryFee);
-        }
-
-        const newTeam = {
-            captainId: user.id,
-            captainName: user.displayName || user.steamNickname,
-            captainAvatar: user.steamAvatar,
-            teamName: String(req.body.teamName || `${user.displayName || user.steamNickname} team`).slice(0, 60),
-            registeredAt: new Date().toISOString()
-        };
-
-        registered.push(newTeam);
-
-        await query(
-            'UPDATE tournaments SET registered_teams = $1 WHERE id = $2',
-            [JSON.stringify(registered), tournament.id]
-        );
-
-        res.json({ success: true, team: newTeam, balance: await getUserBalance(user.id) });
-    } catch (err) {
-        console.error('Tournament register error:', err);
-        res.status(500).json({ error: 'Server error: ' + err.message });
+        const id = `team_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        await query('INSERT INTO teams (id, name, tag, description, captain_id) VALUES ($1,$2,$3,$4,$5)',
+            [id, cleanName, sanitizeString(tag, 6), sanitizeString(description, 300), user.id]);
+        await query('INSERT INTO team_members (team_id, user_id, role) VALUES ($1,$2,$3)', [id, user.id, 'CAPTAIN']);
+        res.json({ success: true, teamId: id });
+    } catch (e) {
+        console.error('Create team error:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
+app.get('/api/teams/my', async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const r = await query(`
+            SELECT t.*, tm.role as my_role FROM teams t
+            JOIN team_members tm ON tm.team_id = t.id
+            WHERE tm.user_id = $1
+        `, [p.userId]);
+        res.json({ data: r.rows.map(toCamelCase) });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/teams/:id', async (req, res) => {
+    try {
+        const tRes = await query('SELECT * FROM teams WHERE id=$1', [req.params.id]);
+        if (tRes.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        const mRes = await query(`
+            SELECT u.id, u.steam_id, u.steam_nickname, u.steam_avatar, u.display_name, tm.role, tm.joined_at
+            FROM team_members tm JOIN users u ON tm.user_id = u.id
+            WHERE tm.team_id=$1 ORDER BY tm.joined_at ASC
+        `, [req.params.id]);
+        res.json({ team: toCamelCase(tRes.rows[0]), members: mRes.rows.map(toCamelCase) });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/teams/:id/invite/:userId', async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const cap = await query('SELECT captain_id FROM teams WHERE id=$1', [req.params.id]);
+        if (cap.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        if (cap.rows[0].captain_id !== p.userId) return res.status(403).json({ error: 'Not captain' });
+
+        const already = await query('SELECT 1 FROM team_members WHERE team_id=$1 AND user_id=$2',
+            [req.params.id, req.params.userId]);
+        if (already.rows.length > 0) return res.status(400).json({ error: 'Уже в команде' });
+
+        await query('INSERT INTO team_invites (id, team_id, from_id, to_id) VALUES ($1,$2,$3,$4)',
+            [`inv_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, req.params.id, p.userId, req.params.userId]);
+        pushEvent(req.params.userId, 'team-invite', { teamId: req.params.id });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/teams/invites/my', async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const r = await query(`
+            SELECT ti.*, t.name as team_name, t.tag as team_tag
+            FROM team_invites ti JOIN teams t ON ti.team_id = t.id
+            WHERE ti.to_id=$1 AND ti.status='pending'
+        `, [p.userId]);
+        res.json({ data: r.rows.map(toCamelCase) });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/teams/invites/:id/:action', async (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const { id, action } = req.params;
+        const inv = await query('SELECT * FROM team_invites WHERE id=$1 AND to_id=$2 AND status=$3',
+            [id, p.userId, 'pending']);
+        if (inv.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+
+        if (action === 'accept') {
+            await query('INSERT INTO team_members (team_id, user_id, role) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+                [inv.rows[0].team_id, p.userId, 'MEMBER']);
+            await query('UPDATE team_invites SET status=$1 WHERE id=$2', ['accepted', id]);
+        } else if (action === 'decline') {
+            await query('UPDATE team_invites SET status=$1 WHERE id=$2', ['declined', id]);
+        } else return res.status(400).json({ error: 'Bad action' });
+
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
 // ================== ADMIN ==================
-// Универсальная проверка админа
 async function requireAdmin(req, res) {
-    const payload = getAuthPayload(req);
-    if (!payload) {
-        adminError(res, 403, 'Admin only');
-        return null;
-    }
-    const user = await findUserById(payload.userId);
-    if (!user) {
-        adminError(res, 403, 'Admin only');
-        return null;
-    }
-    if (!user.isAdmin) {
-        adminError(res, 403, 'Admin only');
-        return null;
-    }
+    const p = getAuthPayload(req);
+    if (!p) { res.status(403).json({ error: 'Admin only' }); return null; }
+    const user = await findUserById(p.userId);
+    if (!user || !user.isAdmin) { res.status(403).json({ error: 'Admin only' }); return null; }
     return user;
 }
 
@@ -1394,143 +1296,82 @@ app.get('/api/admin/users', async (req, res) => {
     try {
         const admin = await requireAdmin(req, res);
         if (!admin) return;
-        const users = await getAllUsers();
-        res.json({ data: users });
-    } catch (err) {
-        console.error('Admin users error:', err);
-        res.status(500).json({ error: 'Server error: ' + err.message });
-    }
+        res.json({ data: await getAllUsers() });
+    } catch (e) { res.status(500).json({ error: 'Server error: ' + e.message }); }
 });
 
 app.get('/api/admin/search', async (req, res) => {
     try {
         const admin = await requireAdmin(req, res);
         if (!admin) return;
-        const searchTerm = String(req.query.q || '').toLowerCase();
-        if (!searchTerm) return res.json({ data: [] });
-        const users = await getAllUsers();
-        const filtered = users.filter(u =>
-            (u.displayName || '').toLowerCase().includes(searchTerm) ||
-            (u.steamNickname || '').toLowerCase().includes(searchTerm)
-        );
-        res.json({ data: filtered });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
+        const q = String(req.query.q || '').toLowerCase();
+        if (!q) return res.json({ data: [] });
+        const all = await getAllUsers();
+        res.json({ data: all.filter(u =>
+            (u.displayName||'').toLowerCase().includes(q) ||
+            (u.steamNickname||'').toLowerCase().includes(q)
+        )});
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Аварийное назначение себя админом (только если админов нет вообще)
 app.post('/api/admin/make-me-admin', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const adminCount = await query('SELECT COUNT(*) FROM users WHERE is_admin = true');
-        if (parseInt(adminCount.rows[0].count, 10) > 0) {
-            return res.status(403).json({ error: 'Админ уже есть' });
-        }
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        await query('UPDATE users SET is_admin = true WHERE id = $1', [user.id]);
+        const cnt = await query('SELECT COUNT(*) FROM users WHERE is_admin=true');
+        if (parseInt(cnt.rows[0].count, 10) > 0) return res.status(403).json({ error: 'Админ уже есть' });
+        const user = await findUserById(p.userId);
+        if (!user) return res.status(404).json({ error: 'Not found' });
+        await query('UPDATE users SET is_admin=true WHERE id=$1', [user.id]);
         res.json({ success: true });
-    } catch (err) {
-        console.error('make-me-admin error:', err);
-        res.status(500).json({ error: 'Server error: ' + err.message });
-    }
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/ban/:userId', async (req, res) => {
+    try {
+        const admin = await requireAdmin(req, res);
+        if (!admin) return;
+        const { ban } = req.body;
+        await query('UPDATE users SET is_banned=$1 WHERE id=$2', [Boolean(ban), req.params.userId]);
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/promote/:userId', async (req, res) => {
+    try {
+        const admin = await requireAdmin(req, res);
+        if (!admin) return;
+        const { promote } = req.body;
+        await query('UPDATE users SET is_admin=$1 WHERE id=$2', [Boolean(promote), req.params.userId]);
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ================== INVENTORY ==================
+app.get('/api/inventory/:steamId', async (req, res) => {
+    try {
+        const url = `https://steamcommunity.com/inventory/${req.params.steamId}/730/2?l=english&count=2000`;
+        const r = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (r.data && r.data.success === 1) {
+            const items = (r.data.assets || []).map(a => {
+                const d = (r.data.descriptions || []).find(x => x.classid === a.classid && x.instanceid === a.instanceid);
+                return {
+                    assetid: a.assetid,
+                    name: d?.market_hash_name || d?.name || 'Unknown',
+                    icon: d?.icon_url ? `https://steamcommunity-a.akamaihd.net/economy/image/${d.icon_url}` : null,
+                    rarity: d?.tags?.find(t => t.category === 'Rarity')?.localized_tag_name || 'Common',
+                    quantity: a.amount || 1
+                };
+            });
+            res.json({ success: true, total: r.data.total_inventory_count || items.length, items });
+        } else {
+            res.json({ success: false, error: 'Private', items: [], total: 0 });
+        }
+    } catch (e) { res.json({ success: false, error: 'Failed', items: [], total: 0 }); }
 });
 
 // ================== HEALTH ==================
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok' }));
-
-// ================== PAYMENTS ==================
-app.post('/api/payments/create', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    if (!yooKassa) return res.status(503).json({ error: 'Платёжная система не настроена' });
-
-    try {
-        const user = await findUserById(payload.userId);
-        if (!user) return res.status(401).json({ error: 'User not found' });
-
-        const { amount, returnUrl } = req.body;
-        const minAmount = 100;
-        const maxAmount = 100000;
-        if (!amount || amount < minAmount || amount > maxAmount) {
-            return res.status(400).json({ error: `Сумма должна быть от ${minAmount} до ${maxAmount} ₽` });
-        }
-
-        const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        await query(
-            'INSERT INTO payments (id, user_id, amount, status) VALUES ($1, $2, $3, $4)',
-            [paymentId, user.id, amount, 'pending']
-        );
-
-        const payment = await yooKassa.createPayment({
-            amount: { value: amount.toString(), currency: 'RUB' },
-            payment_method_data: { type: 'bank_card' },
-            confirmation: {
-                type: 'redirect',
-                return_url: returnUrl || `${FRONTEND_URL}/profile/${user.steamId}`
-            },
-            description: `Пополнение баланса BARSIDE CS2: ${amount} ₽`,
-            metadata: { payment_id: paymentId, user_id: user.id }
-        }, uuidv4());
-
-        await query('UPDATE payments SET yookassa_id = $1 WHERE id = $2', [payment.id, paymentId]);
-
-        res.json({
-            success: true,
-            paymentId,
-            confirmationUrl: payment.confirmation.confirmation_url
-        });
-    } catch (err) {
-        console.error('Create payment error:', err);
-        res.status(500).json({ error: 'Ошибка при создании платежа: ' + err.message });
-    }
-});
-
-app.post('/api/payments/webhook', async (req, res) => {
-    try {
-        const event = req.body;
-        if (event.object && event.object.status) {
-            const yookassaId = event.object.id;
-            const paymentStatus = event.object.status;
-
-            const paymentRes = await query('SELECT * FROM payments WHERE yookassa_id = $1', [yookassaId]);
-            if (paymentRes.rows.length === 0) return res.status(200).send('OK');
-
-            const payment = paymentRes.rows[0];
-            if (payment.status !== 'pending') return res.status(200).send('OK');
-
-            if (paymentStatus === 'succeeded') {
-                await query('UPDATE payments SET status = $1, completed_at = NOW() WHERE id = $2',
-                    ['completed', payment.id]);
-                const currentBalance = await getUserBalance(payment.user_id);
-                await updateUserBalance(payment.user_id, currentBalance + payment.amount);
-                console.log(`✅ Payment succeeded: ${payment.id}`);
-            } else if (paymentStatus === 'canceled') {
-                await query('UPDATE payments SET status = $1 WHERE id = $2', ['canceled', payment.id]);
-            }
-        }
-        res.status(200).send('OK');
-    } catch (err) {
-        console.error('Webhook error:', err);
-        res.status(200).send('OK');
-    }
-});
-
-app.get('/api/payments/history', async (req, res) => {
-    const payload = getAuthPayload(req);
-    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-    try {
-        const paymentsRes = await query(`
-            SELECT id, amount, status, created_at, completed_at
-            FROM payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50
-        `, [payload.userId]);
-        res.json({ data: paymentsRes.rows });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
 
 // ================== SPA FALLBACK ==================
 app.get('*', (req, res) => {
@@ -1539,22 +1380,15 @@ app.get('*', (req, res) => {
 
 // ================== START ==================
 async function startServer() {
-    try {
-        await initPostgresDB();
-    } catch (err) {
+    try { await initPostgresDB(); }
+    catch (err) {
         console.error('❌ Не удалось инициализировать БД:', err.message);
         process.exit(1);
     }
     app.listen(PORT, () => {
         console.log(`\n🚀 BARSIDE CS2 Server running on port ${PORT}`);
-        const dbInfo = process.env.DATABASE_URL
-            ? 'DATABASE_URL (cloud)'
-            : `${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME}`;
-        console.log(`🐘 PostgreSQL: Connected (${dbInfo})`);
+        console.log(`🐘 PostgreSQL: Connected`);
         console.log(`🔗 http://localhost:${PORT}\n`);
     });
 }
-startServer().catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+startServer().catch(err => { console.error('Fatal:', err); process.exit(1); });
