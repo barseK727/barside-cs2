@@ -21,8 +21,8 @@ if (!process.env.STEAM_API_KEY) {
     console.error('❌ STEAM_API_KEY не задан в .env');
     process.exit(1);
 }
-if (!process.env.DB_HOST) {
-    console.error('❌ DB_HOST не задан в .env');
+if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
+    console.error('❌ Ни DATABASE_URL, ни DB_HOST не заданы');
     process.exit(1);
 }
 
@@ -34,12 +34,11 @@ console.log('🌐 FRONTEND_URL:', FRONTEND_URL);
 
 // ================== POSTGRES ==================
 let pool;
-
 if (process.env.DATABASE_URL) {
     // Render / облако: используем connection string
     pool = new Pool({
         connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false }  // облачные БД требуют SSL
+        ssl: { rejectUnauthorized: false }
     });
     console.log('🌐 Using DATABASE_URL for Postgres');
 } else {
@@ -50,10 +49,11 @@ if (process.env.DATABASE_URL) {
         database: process.env.DB_NAME || 'barside',
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD,
-        ssl: false
+        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
     });
     console.log('🏠 Using local Postgres');
 }
+
 
 // ================== ЮKASSA ==================
 let yooKassa = null;
@@ -1538,7 +1538,10 @@ async function startServer() {
     }
     app.listen(PORT, () => {
         console.log(`\n🚀 BARSIDE CS2 Server running on port ${PORT}`);
-        console.log(`🐘 PostgreSQL: Connected (${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME})`);
+        const dbInfo = process.env.DATABASE_URL
+            ? 'DATABASE_URL (cloud)'
+            : `${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME}`;
+        console.log(`🐘 PostgreSQL: Connected (${dbInfo})`);
         console.log(`🔗 http://localhost:${PORT}\n`);
     });
 }
