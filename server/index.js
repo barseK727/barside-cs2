@@ -54,6 +54,15 @@ if (process.env.DATABASE_URL) {
     console.log('🏠 Using local Postgres');
 }
 
+// ⬇️⬇️⬇️ УБЕДИСЬ, ЧТО ЭТА ФУНКЦИЯ ЕСТЬ ⬇️⬇️⬇️
+async function query(text, params) {
+    const res = await pool.query(text, params);
+    return res;
+}
+
+pool.on('error', (err) => {
+    console.error('❌ Postgres pool error:', err.message);
+});
 
 // ================== ЮKASSA ==================
 let yooKassa = null;
