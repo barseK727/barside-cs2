@@ -1,9 +1,5 @@
-const CACHE = 'barside-v1';
-const ASSETS = [
-    '/',
-    '/index.html',
-    '/css/style.css'
-];
+const CACHE = 'barside-v3';
+const ASSETS = ['/', '/index.html', '/css/style.css'];
 
 self.addEventListener('install', (e) => {
     e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
@@ -19,8 +15,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
     const url = new URL(e.request.url);
-    // Не кешируем API и auth
-    if (url.pathname.startsWith('/api') || url.pathname.startsWith('/api/auth')) return;
+    if (url.pathname.startsWith('/api') || url.pathname.startsWith('/inventory')) return;
 
     e.respondWith(
         fetch(e.request).then(res => {
