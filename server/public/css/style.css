@@ -1000,3 +1000,17 @@ body.light .inv-name { color: #111; }
     .inv-img-wrap img { max-height: 70px; }
     #inv-search, #inv-rarity-filter, #inv-sort { width: 100% !important; }
 }
+
+#chat-recording { display: none; }
+#chat-recording span#rec-time { font-variant-numeric: tabular-nums; }
+audio { filter: invert(1) hue-rotate(180deg) brightness(0.8); border-radius: 20px; }
+body.light audio { filter: none; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } }
+#chat-upload-preview img { display: block; }
+
+#chat-recording { display: none; }
+#chat-recording span#rec-time { font-variant-numeric: tabular-nums; }
+audio { filter: invert(1) hue-rotate(180deg) brightness(0.8); border-radius: 20px; }
+body.light audio { filter: none; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } }
+#chat-upload-preview img { display: block; }

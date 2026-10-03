@@ -5,6 +5,8 @@ const axios = require('axios');
 const cookieParser = require('cookie-parser');
 const { v4: uuidv4 } = require('uuid');
 const { Pool } = require('pg');
+const multer = require('multer');
+const fs = require('fs');
 
 let YooKassa = null;
 try { ({ YooKassa } = require('@webzaytsev/yookassa-ts-sdk')); } catch (e) {}
@@ -12,14 +14,10 @@ try { ({ YooKassa } = require('@webzaytsev/yookassa-ts-sdk')); } catch (e) {}
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ============================================================
-// MIDDLEWARE — СТРОГО НАВЕРХУ
-// ============================================================
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ================== ENV CHECK ==================
 if (!process.env.STEAM_API_KEY) { console.error('❌ STEAM_API_KEY не задан'); process.exit(1); }
 if (!process.env.DATABASE_URL && !process.env.DB_HOST) { console.error('❌ Нет БД'); process.exit(1); }
 
@@ -27,7 +25,6 @@ const STEAM_API_KEY = process.env.STEAM_API_KEY;
 const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${PORT}`;
 console.log('🔑 STEAM_API_KEY:', STEAM_API_KEY.slice(0, 8) + '...');
 
-// ================== POSTGRES ==================
 let pool;
 if (process.env.DATABASE_URL) {
     pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -43,16 +40,47 @@ if (process.env.DATABASE_URL) {
     });
     console.log('🏠 Using local Postgres');
 }
-
 async function query(text, params) { return pool.query(text, params); }
 pool.on('error', (err) => console.error('❌ PG pool:', err.message));
 
-// ================== ЮKASSA ==================
 let yooKassa = null;
 if (process.env.YKASSA_SHOP_ID && process.env.YKASSA_SECRET_KEY && YooKassa) {
-    try { yooKassa = new YooKassa({ shopId: process.env.YKASSA_SHOP_ID, secretKey: process.env.YKASSA_SECRET_KEY }); console.log('✅ ЮKassa'); }
-    catch (e) {}
+    try { yooKassa = new YooKassa({ shopId: process.env.YKASSA_SHOP_ID, secretKey: process.env.YKASSA_SECRET_KEY }); console.log('✅ ЮKassa'); } catch {}
 }
+
+// ================== UPLOADS ==================
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_AUDIO_SIZE = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 15 * 1024 * 1024;
+
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const date = new Date().toISOString().slice(0, 10);
+        const dir = path.join(UPLOADS_DIR, date);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const ext = (path.extname(file.originalname) || '').toLowerCase().slice(0, 10);
+        const safeExt = /^\.[a-z0-9]+$/.test(ext) ? ext : '';
+        cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 10)}${safeExt}`);
+    }
+});
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const ALLOWED_AUDIO_TYPES = ['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-m4a'];
+const upload = multer({
+    storage,
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter: (req, file, cb) => {
+        const isImage = ALLOWED_IMAGE_TYPES.includes(file.mimetype);
+        const isAudio = ALLOWED_AUDIO_TYPES.includes(file.mimetype);
+        if (!isImage && !isAudio) return cb(new Error('Разрешены только изображения и аудио'));
+        cb(null, true);
+    }
+});
 
 // ================== УТИЛИТЫ ==================
 function toCamelCase(obj) {
@@ -175,9 +203,7 @@ const RARITY_ORDER = {
     'High Grade': 3, 'Exotic': 4, 'Remarkable': 5, 'Common': 1, 'Uncommon': 2,
     'Rare': 3, 'Mythical': 4, 'Legendary': 5, 'Ancient': 6
 };
-
-// Глобальный предохранитель от повторных обращений при 429
-const inventoryCooldown = new Map(); // steamId -> timestamp until blocked
+const inventoryCooldown = new Map();
 
 async function fetchSteamInventory(steamId) {
     const url = `https://steamcommunity.com/inventory/${steamId}/730/2?l=english&count=5000`;
@@ -187,89 +213,56 @@ async function fetchSteamInventory(steamId) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': `https://steamcommunity.com/profiles/${steamId}/inventory/`
             },
-            timeout: 20000,
-            validateStatus: () => true
+            timeout: 20000, validateStatus: () => true
         });
-
         console.log('🎒 Status:', r.status, '| CT:', r.headers['content-type']);
-
-        // 429 — Steam троттлит, ставим кулдаун на 5 минут
         if (r.status === 429) {
             inventoryCooldown.set(steamId, Date.now() + 5 * 60 * 1000);
-            return {
-                success: false,
-                error: 'rate_limited',
-                retryAfterSeconds: 300,
-                items: [], total: 0
-            };
+            return { success: false, error: 'rate_limited', retryAfterSeconds: 300, items: [], total: 0 };
         }
-
         if (typeof r.data === 'string' && r.data.includes('<html')) {
             inventoryCooldown.set(steamId, Date.now() + 5 * 60 * 1000);
             return { success: false, error: 'steam_blocked', retryAfterSeconds: 300, items: [], total: 0 };
         }
-
-        if (r.status !== 200) {
-            return { success: false, error: `http_${r.status}`, items: [], total: 0 };
-        }
-
+        if (r.status !== 200) return { success: false, error: `http_${r.status}`, items: [], total: 0 };
         if (!r.data || r.data.success !== 1) {
-            return {
-                success: false,
-                error: r.data?.Error ? 'steam_error' : 'private_or_empty',
-                message: r.data?.Error || null,
-                items: [], total: 0
-            };
+            return { success: false, error: r.data?.Error ? 'steam_error' : 'private_or_empty', message: r.data?.Error || null, items: [], total: 0 };
         }
-
         const assets = r.data.assets || [];
         const descriptions = r.data.descriptions || [];
-        console.log(`🎒 assets=${assets.length}, descriptions=${descriptions.length}, total=${r.data.total_inventory_count}`);
-
+        console.log(`🎒 assets=${assets.length}, descriptions=${descriptions.length}`);
         if (assets.length === 0) return { success: true, items: [], total: 0, empty: true };
-
         const descMap = new Map();
         for (const d of descriptions) descMap.set(`${d.classid}_${d.instanceid}`, d);
-
         const items = assets.map(a => {
             const d = descMap.get(`${a.classid}_${a.instanceid}`) || {};
             const rarityTag = d.tags?.find(t => t.category === 'Rarity')?.localized_tag_name || 'Common';
             const rarityColorHex = d.tags?.find(t => t.category === 'Rarity')?.color || (RARITY_COLORS[rarityTag] || '#b0c3d9').replace('#', '');
             return {
-                assetId: a.assetid,
-                classId: a.classid,
+                assetId: a.assetid, classId: a.classid,
                 name: d.market_hash_name || d.name || 'Unknown Item',
                 displayName: d.name || 'Unknown Item',
                 icon: d.icon_url ? `https://community.cloudflare.steamstatic.com/economy/image/${d.icon_url}/330x192` : null,
-                iconLarge: d.icon_url_large
-                    ? `https://community.cloudflare.steamstatic.com/economy/image/${d.icon_url_large}/512x512`
-                    : (d.icon_url ? `https://community.cloudflare.steamstatic.com/economy/image/${d.icon_url}/512x512` : null),
-                rarity: rarityTag,
-                rarityColor: `#${rarityColorHex.replace('#', '')}`,
+                iconLarge: d.icon_url_large ? `https://community.cloudflare.steamstatic.com/economy/image/${d.icon_url_large}/512x512` : (d.icon_url ? `https://community.cloudflare.steamstatic.com/economy/image/${d.icon_url}/512x512` : null),
+                rarity: rarityTag, rarityColor: `#${rarityColorHex.replace('#', '')}`,
                 type: d.tags?.find(t => t.category === 'Type')?.localized_tag_name || 'Item',
                 exterior: d.tags?.find(t => t.category === 'Exterior')?.localized_tag_name || '',
                 quality: d.tags?.find(t => t.category === 'Quality')?.localized_tag_name || '',
                 weapon: d.tags?.find(t => t.category === 'Weapon')?.localized_tag_name || '',
                 collection: d.tags?.find(t => t.category === 'Collection')?.localized_tag_name || '',
-                tradable: d.tradable === 1,
-                marketable: d.marketable === 1,
-                quantity: parseInt(a.amount, 10) || 1,
-                rarityRank: RARITY_ORDER[rarityTag] || 1
+                tradable: d.tradable === 1, marketable: d.marketable === 1,
+                quantity: parseInt(a.amount, 10) || 1, rarityRank: RARITY_ORDER[rarityTag] || 1
             };
         });
-
         const total = items.reduce((s, it) => s + it.quantity, 0);
-        console.log(`🎒 Parsed: ${items.length} items, total ${total}`);
         return { success: true, items, total };
     } catch (e) {
         console.error('🎒 Exception:', e.message);
         return { success: false, error: 'fetch_failed', message: e.message, items: [], total: 0 };
     }
 }
-
 async function getCachedInventory(steamId, maxAgeMinutes = 30) {
     const r = await query('SELECT * FROM inventory_cache WHERE steam_id = $1', [steamId]);
     if (r.rows.length === 0) return null;
@@ -278,93 +271,35 @@ async function getCachedInventory(steamId, maxAgeMinutes = 30) {
     return { items: safeJsonParse(c.items, []), total: c.total, fetchedAt: c.fetched_at, cached: true, success: true };
 }
 async function saveInventoryCache(steamId, items, total) {
-    await query(`
-        INSERT INTO inventory_cache (steam_id, items, total, fetched_at) VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (steam_id) DO UPDATE SET items = $2, total = $3, fetched_at = NOW()
-    `, [steamId, JSON.stringify(items), total]);
+    await query(`INSERT INTO inventory_cache (steam_id, items, total, fetched_at) VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (steam_id) DO UPDATE SET items = $2, total = $3, fetched_at = NOW()`,
+        [steamId, JSON.stringify(items), total]);
 }
-
 async function refreshInventory(steamId, force = false) {
-    // 1. Если включён кулдаун после 429 — не дёргаем Steam вообще
-    const cooldownUntil = inventoryCooldown.get(steamId);
-    if (cooldownUntil && Date.now() < cooldownUntil) {
-        const sec = Math.ceil((cooldownUntil - Date.now()) / 1000);
-        // Если есть хоть какой-то кеш — отдаём его, даже просроченный
+    const cd = inventoryCooldown.get(steamId);
+    if (cd && Date.now() < cd) {
+        const sec = Math.ceil((cd - Date.now()) / 1000);
         const anyCache = await query('SELECT * FROM inventory_cache WHERE steam_id = $1', [steamId]);
         if (anyCache.rows.length > 0) {
             const c = anyCache.rows[0];
-            return {
-                success: true,
-                items: safeJsonParse(c.items, []),
-                total: c.total,
-                fetchedAt: c.fetched_at,
-                cached: true,
-                stale: true
-            };
+            return { success: true, items: safeJsonParse(c.items, []), total: c.total, fetchedAt: c.fetched_at, cached: true, stale: true };
         }
-        return {
-            success: false,
-            error: 'rate_limited',
-            retryAfterSeconds: sec,
-            items: [], total: 0
-        };
+        return { success: false, error: 'rate_limited', retryAfterSeconds: sec, items: [], total: 0 };
     }
-
-    // 2. Обычный кеш
-    if (!force) {
-        const cached = await getCachedInventory(steamId);
-        if (cached) return cached;
-    }
-
-    // 3. Свежий запрос
+    if (!force) { const c = await getCachedInventory(steamId); if (c) return c; }
     const fresh = await fetchSteamInventory(steamId);
     if (!fresh.success) {
-        // При 429 и наличии старого кеша — отдадим его
         if (fresh.error === 'rate_limited' || fresh.error === 'steam_blocked') {
             const anyCache = await query('SELECT * FROM inventory_cache WHERE steam_id = $1', [steamId]);
             if (anyCache.rows.length > 0) {
                 const c = anyCache.rows[0];
-                return {
-                    success: true,
-                    items: safeJsonParse(c.items, []),
-                    total: c.total,
-                    fetchedAt: c.fetched_at,
-                    cached: true,
-                    stale: true,
-                    retryAfterSeconds: fresh.retryAfterSeconds
-                };
+                return { success: true, items: safeJsonParse(c.items, []), total: c.total, fetchedAt: c.fetched_at, cached: true, stale: true, retryAfterSeconds: fresh.retryAfterSeconds };
             }
         }
         return fresh;
     }
-
     fresh.items.sort((a, b) => (b.rarityRank - a.rarityRank) || a.name.localeCompare(b.name));
-    try { await saveInventoryCache(steamId, fresh.items, fresh.total); } catch (e) { console.error('Cache:', e.message); }
-    return { ...fresh, cached: false };
-}
-
-async function getCachedInventory(steamId, maxAgeMinutes = 30) {
-    const r = await query('SELECT * FROM inventory_cache WHERE steam_id = $1', [steamId]);
-    if (r.rows.length === 0) return null;
-    const c = r.rows[0];
-    if ((Date.now() - new Date(c.fetched_at).getTime()) / 60000 > maxAgeMinutes) return null;
-    return { items: safeJsonParse(c.items, []), total: c.total, fetchedAt: c.fetched_at, cached: true, success: true };
-}
-async function saveInventoryCache(steamId, items, total) {
-    await query(`
-        INSERT INTO inventory_cache (steam_id, items, total, fetched_at) VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (steam_id) DO UPDATE SET items = $2, total = $3, fetched_at = NOW()
-    `, [steamId, JSON.stringify(items), total]);
-}
-async function refreshInventory(steamId, force = false) {
-    if (!force) {
-        const cached = await getCachedInventory(steamId);
-        if (cached && cached.items.length > 0) return cached;
-    }
-    const fresh = await fetchSteamInventory(steamId);
-    if (!fresh.success) return fresh;
-    fresh.items.sort((a, b) => (b.rarityRank - a.rarityRank) || a.name.localeCompare(b.name));
-    try { await saveInventoryCache(steamId, fresh.items, fresh.total); } catch (e) { console.error('Cache save:', e.message); }
+    try { await saveInventoryCache(steamId, fresh.items, fresh.total); } catch {}
     return { ...fresh, cached: false };
 }
 
@@ -376,16 +311,12 @@ async function getActiveLfgPosts() {
             COALESCE(accepted.accepted_players, '[]'::json) as accepted_players,
             COALESCE(pending.pending_responses_count, 0) as pending_responses_count
         FROM lfg_posts l JOIN users u ON l.author_id = u.id
-        LEFT JOIN LATERAL (
-            SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
-                'user', json_build_object('id', ru.id, 'steamId', ru.steam_id, 'steamNickname', ru.steam_nickname,
-                    'steamAvatar', ru.steam_avatar, 'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
-            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id
-            WHERE r.post_id = l.id AND r.status = 'accepted'
-        ) accepted ON true
+        LEFT JOIN LATERAL (SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
+            'user', json_build_object('id', ru.id, 'steamId', ru.steam_id, 'steamNickname', ru.steam_nickname,
+                'steamAvatar', ru.steam_avatar, 'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
+            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id WHERE r.post_id = l.id AND r.status = 'accepted') accepted ON true
         LEFT JOIN LATERAL (SELECT COUNT(*)::int as pending_responses_count FROM lfg_responses r WHERE r.post_id = l.id AND r.status = 'pending') pending ON true
-        WHERE l.status = 'active' ORDER BY l.created_at DESC
-    `);
+        WHERE l.status = 'active' ORDER BY l.created_at DESC`);
     return r.rows.map(toCamelCase);
 }
 async function getCompletedLfgPosts() {
@@ -394,25 +325,20 @@ async function getCompletedLfgPosts() {
             'steamAvatar', u.steam_avatar, 'displayName', u.display_name, 'region', u.region, 'role', u.role) as author,
             COALESCE(accepted.accepted_players, '[]'::json) as accepted_players, l.review
         FROM lfg_posts l JOIN users u ON l.author_id = u.id
-        LEFT JOIN LATERAL (
-            SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
-                'user', json_build_object('id', ru.id, 'steamId', ru.steam_id, 'steamNickname', ru.steam_nickname,
-                    'steamAvatar', ru.steam_avatar, 'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
-            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id
-            WHERE r.post_id = l.id AND r.status = 'accepted'
-        ) accepted ON true
-        WHERE l.status = 'completed' ORDER BY l.completed_at DESC
-    `);
+        LEFT JOIN LATERAL (SELECT json_agg(json_build_object('id', r.id, 'role', r.role,
+            'user', json_build_object('id', ru.id, 'steamId', ru.steam_id, 'steamNickname', ru.steam_nickname,
+                'steamAvatar', ru.steam_avatar, 'displayName', ru.display_name)) ORDER BY r.created_at ASC) as accepted_players
+            FROM lfg_responses r JOIN users ru ON r.user_id = ru.id WHERE r.post_id = l.id AND r.status = 'accepted') accepted ON true
+        WHERE l.status = 'completed' ORDER BY l.completed_at DESC`);
     return r.rows.map(toCamelCase);
 }
 async function createLfgPost(p) {
-    const r = await query(`
-        INSERT INTO lfg_posts (id, author_id, title, region, my_role, schedule_type, schedule, week_schedule,
-            players_needed, roles_needed, min_faceit_level, min_premier_rank, description, language, status, created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',NOW()) RETURNING *
-    `, [p.id, p.authorId, p.title, p.region, p.myRole, p.scheduleType, p.schedule,
-        JSON.stringify(p.weekSchedule || {}), p.playersNeeded, JSON.stringify(p.rolesNeeded),
-        p.minFaceitLevel || 1, p.minPremierRank || 0, p.description || '', p.language || 'ru']);
+    const r = await query(`INSERT INTO lfg_posts (id, author_id, title, region, my_role, schedule_type, schedule, week_schedule,
+        players_needed, roles_needed, min_faceit_level, min_premier_rank, description, language, status, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',NOW()) RETURNING *`,
+        [p.id, p.authorId, p.title, p.region, p.myRole, p.scheduleType, p.schedule,
+            JSON.stringify(p.weekSchedule || {}), p.playersNeeded, JSON.stringify(p.rolesNeeded),
+            p.minFaceitLevel || 1, p.minPremierRank || 0, p.description || '', p.language || 'ru']);
     return toCamelCase(r.rows[0]);
 }
 async function addResponseToLfg(postId, userId, role, message) {
@@ -427,16 +353,13 @@ async function addResponseToLfg(postId, userId, role, message) {
     if (parseInt(cnt.rows[0].count, 10) >= postRes.rows[0].players_needed) throw new Error('Все места заняты');
     const r = await query(`INSERT INTO lfg_responses (id, post_id, user_id, role, message, status, created_at)
         VALUES ($1,$2,$3,$4,$5,'pending',NOW()) RETURNING *`,
-        [`resp_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, postId, userId, role, message || '']);
+        [`resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, postId, userId, role, message || '']);
     return toCamelCase(r.rows[0]);
 }
 async function getLfgResponses(postId) {
-    const r = await query(`
-        SELECT r.*, json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
-            'steamAvatar', u.steam_avatar, 'displayName', u.display_name) as user
-        FROM lfg_responses r JOIN users u ON r.user_id = u.id
-        WHERE r.post_id=$1 AND r.status='pending' ORDER BY r.created_at ASC
-    `, [postId]);
+    const r = await query(`SELECT r.*, json_build_object('id', u.id, 'steamId', u.steam_id, 'steamNickname', u.steam_nickname,
+        'steamAvatar', u.steam_avatar, 'displayName', u.display_name) as user
+        FROM lfg_responses r JOIN users u ON r.user_id = u.id WHERE r.post_id=$1 AND r.status='pending' ORDER BY r.created_at ASC`, [postId]);
     return r.rows.map(toCamelCase);
 }
 async function acceptResponse(postId, responseId, authorId) {
@@ -503,14 +426,12 @@ async function sendFriendRequest(id, fromId, toId) {
 }
 async function getFriendRequests(toUserId) {
     const r = await query(`SELECT fr.*, u.steam_nickname as from_name, u.steam_avatar as from_avatar
-        FROM friend_requests fr JOIN users u ON fr.from_id = u.id
-        WHERE fr.to_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC`, [toUserId]);
+        FROM friend_requests fr JOIN users u ON fr.from_id = u.id WHERE fr.to_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC`, [toUserId]);
     return r.rows.map(toCamelCase);
 }
 async function getSentFriendRequests(fromUserId) {
     const r = await query(`SELECT fr.*, u.steam_nickname as to_name, u.steam_avatar as to_avatar
-        FROM friend_requests fr JOIN users u ON fr.to_id = u.id
-        WHERE fr.from_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC`, [fromUserId]);
+        FROM friend_requests fr JOIN users u ON fr.to_id = u.id WHERE fr.from_id = $1 AND fr.status='pending' ORDER BY fr.created_at DESC`, [fromUserId]);
     return r.rows.map(toCamelCase);
 }
 async function acceptFriendRequest(requestId, toUserId) {
@@ -544,7 +465,13 @@ async function getMessages(userId, otherId) {
     return r.rows.map(toCamelCase);
 }
 async function createMessage(m) {
-    const r = await query(`INSERT INTO messages (id, from_id, to_id, text, read, created_at) VALUES ($1,$2,$3,$4,false,NOW()) RETURNING *`, [m.id, m.from_id, m.to_id, m.text]);
+    const r = await query(`
+        INSERT INTO messages (id, from_id, to_id, text, read, created_at,
+            attachment_type, attachment_url, attachment_name, attachment_size, attachment_duration)
+        VALUES ($1,$2,$3,$4,false,NOW(),$5,$6,$7,$8,$9) RETURNING *`,
+        [m.id, m.from_id, m.to_id, m.text || '',
+            m.attachmentType || null, m.attachmentUrl || null, m.attachmentName || null,
+            m.attachmentSize || null, m.attachmentDuration || null]);
     return toCamelCase(r.rows[0]);
 }
 async function markMessagesAsRead(userId, fromId) {
@@ -596,7 +523,7 @@ async function initPostgresDB() {
         await c.query(`CREATE TABLE IF NOT EXISTS lfg_responses (id TEXT PRIMARY KEY, post_id TEXT REFERENCES lfg_posts(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, message TEXT, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT NOW())`);
         await c.query(`CREATE TABLE IF NOT EXISTS friends (user_id TEXT REFERENCES users(id) ON DELETE CASCADE, friend_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, friend_id))`);
         await c.query(`CREATE TABLE IF NOT EXISTS friend_requests (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT NOW(), status TEXT DEFAULT 'pending')`);
-        await c.query(`CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL, read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
+        await c.query(`CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, from_id TEXT REFERENCES users(id) ON DELETE CASCADE, to_id TEXT REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL DEFAULT '', read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
         await c.query(`CREATE TABLE IF NOT EXISTS tournaments (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, prize_pool TEXT, date TIMESTAMP, status TEXT DEFAULT 'UPCOMING', entry_fee INTEGER DEFAULT 0, max_teams INTEGER DEFAULT 16, registered_teams JSONB, format TEXT, rules TEXT, schedule TEXT, created_at TIMESTAMP DEFAULT NOW())`);
         await c.query(`CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, amount INTEGER NOT NULL, status TEXT DEFAULT 'pending', yookassa_id TEXT, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)`);
         await c.query(`CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, tag TEXT, logo_url TEXT, description TEXT, captain_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMP DEFAULT NOW())`);
@@ -612,7 +539,12 @@ async function initPostgresDB() {
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS steam_url TEXT`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS matches_played INTEGER DEFAULT 0`,
             `ALTER TABLE users ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT 1000`,
-            `ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Новичок'`
+            `ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT DEFAULT 'Новичок'`,
+            `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_type TEXT`,
+            `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_url TEXT`,
+            `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name TEXT`,
+            `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size INTEGER`,
+            `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_duration INTEGER`
         ];
         for (const m of migr) { try { await c.query(m); } catch {} }
 
@@ -630,7 +562,6 @@ app.get('/api/auth/steam', (req, res) => {
     const origin = getRequestOrigin(req);
     res.redirect(`https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${encodeURIComponent(`${origin}/api/auth/steam/callback`)}&openid.realm=${encodeURIComponent(origin)}&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`);
 });
-
 app.get('/api/auth/steam/callback', async (req, res) => {
     const fUrl = process.env.FRONTEND_URL || getRequestOrigin(req);
     const claimedId = req.query['openid.claimed_id'];
@@ -668,7 +599,6 @@ app.get('/api/auth/steam/callback', async (req, res) => {
         res.redirect(`${fUrl}/`);
     } catch (e) { console.error('Steam auth:', e.message); res.redirect(`${fUrl}/?error=auth_failed`); }
 });
-
 app.post('/api/auth/logout', (req, res) => { res.clearCookie('auth_token'); res.json({ success: true }); });
 app.get('/api/auth/me', async (req, res) => {
     const p = getAuthPayload(req);
@@ -684,7 +614,6 @@ app.get('/api/profile/:steamId', async (req, res) => {
         res.json({ user: u });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.put('/api/profile/:steamId', rateLimitMiddleware(20, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -722,7 +651,6 @@ app.get('/api/stats', async (req, res) => {
 // ================== LFG ROUTES ==================
 app.get('/api/lfg', async (req, res) => { try { res.json({ data: await getActiveLfgPosts() }); } catch { res.json({ data: [] }); } });
 app.get('/api/lfg/completed', async (req, res) => { try { res.json({ data: await getCompletedLfgPosts() }); } catch { res.json({ data: [] }); } });
-
 app.post('/api/lfg', rateLimitMiddleware(5, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -748,7 +676,6 @@ app.post('/api/lfg', rateLimitMiddleware(5, 60000), async (req, res) => {
         res.status(201).json({ data: created });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.post('/api/lfg/:postId/respond', rateLimitMiddleware(10, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -762,7 +689,6 @@ app.post('/api/lfg/:postId/respond', rateLimitMiddleware(10, 60000), async (req,
         res.status(201).json({ data: response });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 app.get('/api/lfg/:postId/responses', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -774,7 +700,6 @@ app.get('/api/lfg/:postId/responses', async (req, res) => {
         res.json({ data: await getLfgResponses(req.params.postId) });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.get('/api/lfg/responses/unread', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -783,7 +708,6 @@ app.get('/api/lfg/responses/unread', async (req, res) => {
         res.json({ count: parseInt(r.rows[0].count, 10) || 0 });
     } catch { res.json({ count: 0 }); }
 });
-
 app.post('/api/lfg/:postId/responses/:responseId/accept', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -795,21 +719,18 @@ app.post('/api/lfg/:postId/responses/:responseId/accept', async (req, res) => {
         res.json({ success: true });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 app.post('/api/lfg/:postId/responses/:responseId/reject', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try { const u = await findUserById(p.userId); await rejectResponse(req.params.postId, req.params.responseId, u.id); res.json({ success: true }); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 app.post('/api/lfg/:postId/complete', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try { const u = await findUserById(p.userId); await completeLfgPost(req.params.postId, u.id); res.json({ success: true }); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 app.post('/api/lfg/:postId/review', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -821,7 +742,6 @@ app.post('/api/lfg/:postId/review', async (req, res) => {
         res.json({ success: true });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 app.delete('/api/lfg/:id', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -837,7 +757,6 @@ app.delete('/api/lfg/:id', async (req, res) => {
 app.get('/api/friends', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { res.json({ data: await getFriends(p.userId) }); } catch { res.status(500).json({ error: 'Server error' }); } });
 app.get('/api/friends/requests', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { res.json({ data: await getFriendRequests(p.userId) }); } catch { res.status(500).json({ error: 'Server error' }); } });
 app.get('/api/friends/requests/sent', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { res.json({ data: await getSentFriendRequests(p.userId) }); } catch { res.status(500).json({ error: 'Server error' }); } });
-
 app.post('/api/friends/request/:userId', rateLimitMiddleware(20, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -855,11 +774,36 @@ app.post('/api/friends/request/:userId', rateLimitMiddleware(20, 60000), async (
         res.json({ success: true });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.post('/api/friends/request/:requestId/accept', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { await acceptFriendRequest(req.params.requestId, p.userId); res.json({ success: true }); } catch { res.status(500).json({ error: 'Server error' }); } });
 app.post('/api/friends/request/:requestId/decline', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { await declineFriendRequest(req.params.requestId, p.userId); res.json({ success: true }); } catch { res.status(500).json({ error: 'Server error' }); } });
 app.delete('/api/friends/request/:requestId', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { const ok = await cancelFriendRequest(req.params.requestId, p.userId); if (!ok) return res.status(404).json({ error: 'Not found' }); res.json({ success: true }); } catch { res.status(500).json({ error: 'Server error' }); } });
 app.delete('/api/friends/:friendId', async (req, res) => { const p = getAuthPayload(req); if (!p) return res.status(401).json({ error: 'Unauthorized' }); try { await removeFriend(p.userId, req.params.friendId); res.json({ success: true }); } catch { res.status(500).json({ error: 'Server error' }); } });
+
+// ================== UPLOAD ==================
+app.post('/api/upload', rateLimitMiddleware(30, 60000), (req, res) => {
+    const p = getAuthPayload(req);
+    if (!p) return res.status(401).json({ error: 'Unauthorized' });
+    upload.single('file')(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Файл больше 15 МБ' });
+            return res.status(400).json({ error: err.message || 'Ошибка загрузки' });
+        }
+        if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+        const isImage = req.file.mimetype.startsWith('image/');
+        const isAudio = req.file.mimetype.startsWith('audio/');
+        if (isImage && req.file.size > MAX_IMAGE_SIZE) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+            return res.status(400).json({ error: 'Изображение больше 10 МБ' });
+        }
+        if (isAudio && req.file.size > MAX_AUDIO_SIZE) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+            return res.status(400).json({ error: 'Голосовое больше 5 МБ' });
+        }
+        const date = new Date().toISOString().slice(0, 10);
+        const url = `/uploads/${date}/${req.file.filename}`;
+        res.json({ success: true, url, type: isImage ? 'image' : 'audio', name: req.file.originalname, size: req.file.size });
+    });
+});
 
 // ================== MESSAGES ==================
 app.get('/api/messages/:userId', async (req, res) => {
@@ -871,25 +815,32 @@ app.get('/api/messages/:userId', async (req, res) => {
         res.json({ data: msgs });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.post('/api/messages/:userId', rateLimitMiddleware(60, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const text = sanitizeString(req.body.text, 2000);
-        if (!text) return res.status(400).json({ error: 'Пусто' });
-        const created = await createMessage({ id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, from_id: p.userId, to_id: req.params.userId, text });
-        pushEvent(req.params.userId, 'new-message', { fromId: p.userId, text, at: new Date().toISOString() });
+        const text = sanitizeString(req.body.text || '', 2000);
+        const attachmentType = req.body.attachmentType ? sanitizeString(req.body.attachmentType, 20) : null;
+        const attachmentUrl = req.body.attachmentUrl ? sanitizeString(req.body.attachmentUrl, 500) : null;
+        const attachmentName = req.body.attachmentName ? sanitizeString(req.body.attachmentName, 200) : null;
+        const attachmentSize = req.body.attachmentSize ? parseInt(req.body.attachmentSize, 10) || null : null;
+        const attachmentDuration = req.body.attachmentDuration ? parseInt(req.body.attachmentDuration, 10) || null : null;
+        if (!text && !attachmentUrl) return res.status(400).json({ error: 'Пустое сообщение' });
+        if (attachmentUrl && !attachmentUrl.startsWith('/uploads/')) return res.status(400).json({ error: 'Неверный URL вложения' });
+        const created = await createMessage({
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            from_id: p.userId, to_id: req.params.userId, text,
+            attachmentType, attachmentUrl, attachmentName, attachmentSize, attachmentDuration
+        });
+        pushEvent(req.params.userId, 'new-message', { fromId: p.userId, text: text || '📎', at: new Date().toISOString() });
         res.json({ success: true, message: created });
-    } catch { res.status(500).json({ error: 'Server error' }); }
+    } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
-
 app.get('/api/messages/unread/count', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
     try { res.json({ count: await getUnreadCount(p.userId) }); } catch { res.json({ count: 0 }); }
 });
-
 app.get('/api/user/by-id/:userId', async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -911,57 +862,29 @@ app.get('/api/inventory/:steamId', async (req, res) => {
             const min = Math.ceil(sec / 60);
             let msg;
             if (data.error === 'rate_limited' || data.error === 'steam_blocked') {
-                msg = `⏳ Steam временно блокирует запросы с вашего IP (слишком часто обновляли). Подождите ~${min} мин и попробуйте снова. Это ограничение Steam, оно не связано с сайтом.`;
+                msg = `⏳ Steam временно блокирует запросы с вашего IP. Подождите ~${min} мин и попробуйте снова.`;
             } else if (data.error === 'private_or_empty') {
                 msg = 'Инвентарь закрыт или пуст. Открой приватность: Steam → Настройки → Приватность → Инвентарь → Открытый.';
-            } else {
-                msg = data.message || 'Не удалось загрузить инвентарь';
-            }
-            return res.json({
-                success: false,
-                error: data.error,
-                retryAfterSeconds: sec,
-                items: [], total: 0,
-                message: msg
-            });
+            } else { msg = data.message || 'Не удалось загрузить'; }
+            return res.json({ success: false, error: data.error, retryAfterSeconds: sec, items: [], total: 0, message: msg });
         }
-        res.json({
-            success: true,
-            items: data.items,
-            total: data.total,
-            cached: data.cached || false,
-            stale: data.stale || false,
-            retryAfterSeconds: data.retryAfterSeconds || 0,
-            fetchedAt: data.fetchedAt || new Date().toISOString()
-        });
-    } catch (e) {
-        console.error('Inventory error:', e.message);
-        res.json({ success: false, error: 'fetch_failed', items: [], total: 0, message: e.message });
-    }
+        res.json({ success: true, items: data.items, total: data.total, cached: data.cached || false, stale: data.stale || false, fetchedAt: data.fetchedAt || new Date().toISOString() });
+    } catch (e) { res.json({ success: false, error: 'fetch_failed', items: [], total: 0, message: e.message }); }
 });
-
 app.get('/api/inventory-debug/:steamId', async (req, res) => {
     const { steamId } = req.params;
     try {
         const url = `https://steamcommunity.com/inventory/${steamId}/730/2?l=english&count=5000`;
         const r = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Referer': `https://steamcommunity.com/profiles/${steamId}/inventory/`
-            },
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Referer': `https://steamcommunity.com/profiles/${steamId}/inventory/` },
             timeout: 20000, validateStatus: () => true
         });
         res.json({
-            httpStatus: r.status,
-            contentType: r.headers['content-type'],
+            httpStatus: r.status, contentType: r.headers['content-type'],
             isHtml: typeof r.data === 'string' && r.data.includes('<html'),
-            success: r.data?.success,
-            total_inventory_count: r.data?.total_inventory_count,
-            assets_count: (r.data?.assets || []).length,
-            descriptions_count: (r.data?.descriptions || []).length,
-            error: r.data?.Error || null,
-            rawSample: typeof r.data === 'string' ? r.data.slice(0, 300) : undefined
+            success: r.data?.success, total_inventory_count: r.data?.total_inventory_count,
+            assets_count: (r.data?.assets || []).length, descriptions_count: (r.data?.descriptions || []).length,
+            error: r.data?.Error || null
         });
     } catch (e) { res.json({ error: e.message }); }
 });
@@ -974,7 +897,6 @@ app.get('/api/tournaments/:id/teams', async (req, res) => {
         res.json({ data: r.rows.map(row => { const t = toCamelCase(row); t.players = safeJsonParse(t.players, []); return t; }) });
     } catch { res.status(500).json({ error: 'Server error' }); }
 });
-
 app.post('/api/tournaments/:id/register-team', rateLimitMiddleware(10, 60000), async (req, res) => {
     const p = getAuthPayload(req);
     if (!p) return res.status(401).json({ error: 'Unauthorized' });
@@ -1093,11 +1015,9 @@ app.post('/api/admin/promote/:userId', async (req, res) => {
     catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// ================== HEALTH / SPA ==================
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ================== START ==================
 async function startServer() {
     try { await initPostgresDB(); }
     catch (err) { console.error('❌ DB init:', err.message); process.exit(1); }
